@@ -46,8 +46,17 @@ go build ./agent/...
 | # | 任务 | 状态 |
 |---|---|---|
 | 1.1 | 开发环境搭建与脚手架 | ✅ 完成 |
-| 1.2 | 引擎集成验证 | 待开始 |
+| 1.2 | 引擎集成验证 | ✅ 完成 |
 | 1.3 | PI V2 协议解析验证 | 待开始 |
 | 1.4 | Win32 控制链路验证 | 待开始 |
 | 1.5 | Agent 链路验证 | 待开始 |
 | 1.6 | 技术方案评审 | 待开始 |
+
+## P1.2 验证结果（2026-10-25）
+
+`dotnet run --project src/MaaYss.P1Probe -- engine` 输出：MaaFramework v5.13.0-beta.2 → 资源 PostBundle 成功（hash `d2d7ae0ec19aaf9`）→ PostTask → `Tasker.Task.Starting` → `Tasker.Task.Succeeded`。
+
+实现要点：
+- 引擎层：`src/MaaYss.Engine/Native/`（P/Invoke + DllImportResolver 定位 `third_party/maafw`）、`MaaResource` / `MaaTasker` / `MaaNullController` 托管封装（SafeHandle + UTF-8 marshalling）
+- 自定义控制器 `MaaNullController`：MaaYYs 运行库未分发 `MaaDbgControlUnit.dll`，改用 `MaaCustomControllerCreate` 扩展点实现 1x1 静态截图控制器（无额外 DLL 依赖）
+- 注意：v5.13 起 API 为 Tasker 中心化（无 MaaInstance）；`pipeline_override` 必须传合法 JSON 字符串（官方绑定默认 `{}`，传 null 会触发框架 UB）

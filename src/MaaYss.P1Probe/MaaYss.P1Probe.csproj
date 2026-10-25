@@ -12,4 +12,9 @@
     <ProjectReference Include="..\MaaYss.Engine\MaaYss.Engine.csproj" />
   </ItemGroup>
 
+  <!-- P1.2 测试资源随构建复制到输出目录 test_resource/ -->
+  <ItemGroup>
+    <None Include="..\..\test_resource\**" CopyToOutputDirectory="PreserveNewest" LinkBase="test_resource" />
+  </ItemGroup>
+
 </Project>

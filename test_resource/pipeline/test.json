@@ -1,0 +1,7 @@
+{
+  "TestTask": {
+    "desc": "P1.2 引擎集成冒烟：DirectHit 识别 + DoNothing 动作，无设备依赖",
+    "recognition": "DirectHit",
+    "action": "DoNothing"
+  }
+}
