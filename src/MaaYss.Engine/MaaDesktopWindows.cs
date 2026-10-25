@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using MaaYss.Engine.Native;
 
@@ -78,6 +80,54 @@ public static class MaaDesktopWindows
 
         return matched;
     }
+
+    /// <summary>
+    /// 枚举指定窗口的子窗口（Win32 EnumChildWindows）。
+    /// 诊断用途：部分游戏（Unity/CEF 等）的输入实际由子窗口处理，
+    /// 若向顶层窗口 SendMessage 无效，可能需要改投子窗口。
+    /// </summary>
+    public static List<DesktopWindowInfo> FindChildren(IntPtr parent)
+    {
+        List<DesktopWindowInfo> children = [];
+        if (parent == IntPtr.Zero)
+        {
+            return children;
+        }
+
+        bool EnumProc(IntPtr hWnd, IntPtr lParam)
+        {
+            children.Add(new DesktopWindowInfo(hWnd, GetClassName(hWnd), GetWindowText(hWnd)));
+            return true;
+        }
+
+        EnumChildWindows(parent, EnumProc, IntPtr.Zero);
+        return children;
+    }
+
+    private static string GetClassName(IntPtr hWnd)
+    {
+        StringBuilder sb = new(256);
+        _ = GetClassName(hWnd, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    private static string GetWindowText(IntPtr hWnd)
+    {
+        StringBuilder sb = new(256);
+        _ = GetWindowText(hWnd, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     /// <summary>编译正则；null/空/空白返回 null（不限制）。语法不合法时抛出并附带上下文。</summary>
     private static Regex? Compile(string? pattern)
