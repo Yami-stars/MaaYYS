@@ -19,7 +19,7 @@ public static class MaaFramework
     public static string Version => MaaFrameworkApi.Version();
 
     /// <summary>已定位的 MaaFramework.dll 绝对路径；未定位时为 null（走系统默认解析）。</summary>
-    public static string? NativeLibraryPath => NativeLoader.Locate();
+    public static string? NativeLibraryPath => NativeLoader.Locate("MaaFramework.dll");
 
     /// <summary>将托管字符串转为原生 UTF-8 非托管内存（调用方负责 FreeCoTaskMem 释放）。</summary>
     internal static IntPtr ToUtf8Native(string? value)

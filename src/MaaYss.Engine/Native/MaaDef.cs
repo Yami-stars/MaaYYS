@@ -134,3 +134,52 @@ public static class MaaMsg
     public const string NodeWaitFreezesSucceeded = "Node.WaitFreezes.Succeeded";
     public const string NodeWaitFreezesFailed = "Node.WaitFreezes.Failed";
 }
+
+/// <summary>
+/// MaaCtrlOption（MaaDef.h 枚举）。控制器/任务器级设置项。
+/// 注：值即枚举序数（ScreenshotTargetLongSide=1 起）。
+/// </summary>
+public enum MaaCtrlOption
+{
+    Invalid = 0,
+    ScreenshotTargetLongSide = 1,
+    ScreenshotTargetShortSide = 2,
+    ScreenshotUseRawSize = 3,
+    MouseLockFollow = 4,
+    ScreenshotResizeMethod = 6,
+    BackgroundManagedKeys = 7,
+    ScreenshotTargetExpand = 8,
+}
+
+/// <summary>Win32 截图方法位掩码（MaaDef.h，uint64_t 位标志）。</summary>
+public static class MaaWin32ScreencapMethod
+{
+    public const ulong None = 0UL;
+    public const ulong Gdi = 1UL;
+    public const ulong FramePool = 1UL << 1;
+    public const ulong DxgiDesktopDup = 1UL << 2;
+    public const ulong DxgiDesktopDupWindow = 1UL << 3;
+    public const ulong PrintWindow = 1UL << 4;
+    public const ulong ScreenDc = 1UL << 5;
+    public const ulong All = ~None;
+    /// <summary>前台截图组合（DXGI 窗口 + ScreenDC）。</summary>
+    public const ulong Foreground = DxgiDesktopDupWindow | ScreenDc;
+    /// <summary>后台截图组合（FramePool + PrintWindow），可抓硬件加速画面且不抢焦点。</summary>
+    public const ulong Background = FramePool | PrintWindow;
+}
+
+/// <summary>Win32 输入方法位掩码（MaaDef.h，uint64_t 位标志）。</summary>
+public static class MaaWin32InputMethod
+{
+    public const ulong None = 0UL;
+    public const ulong Seize = 1UL;
+    public const ulong SendMessage = 1UL << 1;
+    public const ulong PostMessage = 1UL << 2;
+    public const ulong LegacyEvent = 1UL << 3;
+    public const ulong SendMessageWithCursorPos = 1UL << 5;
+    public const ulong PostMessageWithCursorPos = 1UL << 6;
+    public const ulong SendMessageWithWindowPos = 1UL << 7;
+    public const ulong PostMessageWithWindowPos = 1UL << 8;
+    public const ulong Interception = 1UL << 9;
+    public const ulong AnchoredTouch = 1UL << 10;
+}

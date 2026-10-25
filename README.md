@@ -54,8 +54,7 @@ go build ./agent/...
 | 1.1 | 开发环境搭建与脚手架 | ✅ 完成 |
 | 1.2 | 引擎集成验证 | ✅ 完成 |
 | 1.3 | PI V2 协议解析验证 | ✅ 完成 |
-| 1.3 | PI V2 协议解析验证 | 待开始 |
-| 1.4 | Win32 控制链路验证 | 待开始 |
+| 1.4 | Win32 控制链路验证 | ✅ 完成（点击验证待显式执行，策略 A） |
 | 1.5 | Agent 链路验证 | 待开始 |
 | 1.6 | 技术方案评审 | 待开始 |
 
@@ -80,3 +79,20 @@ go build ./agent/...
 - import 合并语义对齐 MaaPiCli `Parser.cpp`：task/preset 追加；option 为 `unordered_map::insert` 语义——**同名先到先得，顶层 interface.json 优先**
 - 官方硬校验三项：`interface_version == 2`、控制器类型合法、任务引用的 option 必须存在于合并池
 - **流程表修正**：原「32 个任务入口」为按 tasks/ 目录文件数的误计数；按 PI V2 语义只有 import 引用的 29 个构成任务入口（3 个孤儿文件不加载），流程表全文已同步修正
+
+## P1.4 验证结果（2026-10-25）
+
+`dotnet run --project src/MaaYss.P1Probe -- win32`（默认解析 MaaYYs 的 interface.json，游戏窗口实测运行中）：
+
+- 窗口枚举命中 1 个：`hWnd=0x1805EC class=[Win32Window] title=[阴阳师-网易游戏]`（window_regex 放宽为「阴阳师」后命中当前窗口标题）
+- 连接：`PostConnection -> Succeeded`，`Connected=True`，`Uuid=00000000001805EC`
+- Info JSON 证实方法生效：`screencap_method=16`（PrintWindow）、`mouse/keyboard_method=2`（SendMessage），与 interface.json 配置一致
+- 截图：`1280x720`（短边 720 缩放生效）3 通道 BGR，平均亮度 107.7/255，非黑像素 64.1% —— 后台截图抓到了真实庭院画面（不抢焦点）
+- 原始分辨率 `1431x805`，缩放关系正确
+
+实现要点：
+- `Native/`：Toolkit 窗口枚举 API（MaaToolkit.dll，NativeLoader 已扩展解析）+ Win32 控制器全套 Post/Wait API + ImageBuffer/StringBuffer 封装（`MaaHandles.cs`：SafeHandle + BMP 自编码）
+- 托管封装：`MaaDesktopWindows`（正则过滤语义对齐 `boost::regex_search` 子串匹配）、`MaaWin32Controller`（连接/截图/点击/滑动/SetOption）
+- 点击验证按用户选定策略 A：默认仅验证到截图，点击/滑动须 `--click x,y` / `--swipe ...` 显式执行（执行前打印坐标）
+
+验证截图（debug/win32-screenshot-*.bmp，已 gitignore）。

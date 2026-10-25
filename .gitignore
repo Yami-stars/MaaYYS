@@ -20,6 +20,9 @@ environment/
 *.swp
 *.log
 
+# ---- 运行产物（截图/调试输出）----
+debug/
+
 # ---- OS ----
 Thumbs.db
 desktop.ini
