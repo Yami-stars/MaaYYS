@@ -1,0 +1,25 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# ---- Go ----
+agent/bin/
+agent/*.exe
+
+# ---- MaaFramework 运行库（从 D:\YYS\MaaYYs-...\maafw 复制，不入库）----
+third_party/maafw/
+
+# ---- 工具链（Go SDK 与 GOPATH，不入库）----
+environment/
+
+# ---- IDE ----
+.idea/
+*.swp
+*.log
+
+# ---- OS ----
+Thumbs.db
+desktop.ini
