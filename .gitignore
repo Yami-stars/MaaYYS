@@ -8,6 +8,8 @@ obj/
 # ---- Go ----
 agent/bin/
 agent/*.exe
+# agent 侧验证痕迹（P1.5 探针读取后立即删除，防残留入库）
+agent/agent-action-hit.txt
 
 # ---- MaaFramework 运行库（从 D:\YYS\MaaYYs-...\maafw 复制，不入库）----
 third_party/maafw/

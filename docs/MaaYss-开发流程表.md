@@ -12,7 +12,7 @@
 | 阶段 | 名称 | 目标 | 工期(人日) | 关键门禁 |
 |---|---|---|---|---|
 | P0 | 知识获取与立项 | 完成参考对象分析、技术选型、开发流程评审 | 2 ✅ | 本报告 + 流程表评审通过 |
-| P1 | 技术预研与原型验证 | 打通 MaaFramework 全链路，验证 Win32 控制可行性 | 5（进行中，已完成约 3.5） | 原型机能连桌面端并完成一次完整识别+点击 |
+| P1 | 技术预研与原型验证 | 打通 MaaFramework 全链路，验证 Win32 控制可行性 | 5（进行中，已完成约 4.5，剩 1.6 评审） | 原型机能连桌面端并完成一次完整识别+点击 |
 | P2 | 基础框架搭建 | GUI 骨架 + 引擎封装 + 设备管理 + 配置系统 | 8 | 能连接设备、加载资源、跑通一个 pipeline |
 | P3 | 资源层移植 | pipeline/模板图/模型/任务定义从 MaaYYs 移植重构 | 10 | 29 个任务全部可加载、JSON 校验通过 |
 | P4 | Agent 功能移植 | Go agent 19 动作 + 2 识别移植 | 7 | agent 子进程注册成功，冒烟通过 |
@@ -34,7 +34,7 @@
 | 1.2 | 引擎集成验证 | C# P/Invoke 或 Maa.Framework 绑定 MaaFramework.dll；创建 MaaInstance、MaaTasker | 引擎封装 Demo | 能调用 MaaTaskerPostTask 并收到回调 | 1 | 1.1 |
 | 1.3 | PI V2 协议解析验证 | 加载 interface.json，验证 controller/resource/import 解析，多 bundle 覆盖语义 | 资源加载 Demo | 控制台打印出 8 个渠道服资源、29 个 import 任务入口（另识别 3 个未引用孤儿文件） | 1 | 1.2 |
 | 1.4 | Win32 控制链路验证 ✅ | Win32 控制单元连接桌面端（类名 Win32Window + 标题正则）；**FramePool** 截图；SendMessage 后台点击 | 可运行的连接 Demo | 截图完整无黑边；主界面前台点击生效；面板内 UI 后台点击生效 | 1 | 1.2 |
-| 1.5 | Agent 链路验证 | maa-framework-go 起 MaaAgentServer；注册一个测试 custom_action；pipeline 引用并调通 | agent 最小闭环 | 日志出现 agent 注册成功 + action 被调用 | 1 | 1.1 |
+| 1.5 | Agent 链路验证 ✅ | maa-framework-go **v4** 起 MaaAgentServer；注册测试 custom_action + custom_recognition；C# AgentClient 连接并调通 | agent 最小闭环 | 日志出现 agent 注册成功 + action 被调用 | 1 | 1.1 |
 | 1.6 | 技术方案评审 | 评审绑定方式（P/Invoke vs NuGet）、agent 语言、目录规范 | 评审结论 | 方案确认，风险记录在案 | 0.5 | 1.2-1.5 |
 
 ### P2 基础框架搭建（8 人日）
@@ -63,7 +63,7 @@
 
 | # | 任务 | 内容说明 | 交付物 | 验证标准 | 工期 | 依赖 |
 |---|---|---|---|---|---|---|
-| 4.1 | agent 框架搭建 | maa-framework-go 子进程框架；MaaAgentServer 生命周期；与 GUI 的 socket 通信；日志互通 | `agent/` 工程 | GUI 启动时自动拉起 agent，退出时回收 | 1 | P1.5 |
+| 4.1 | agent 框架搭建 | maa-framework-go **v4**（非 v1.x，后者无 AgentServer）子进程框架；MaaAgentServer 生命周期；与 GUI 的 socket 通信；日志互通 | `agent/` 工程 | GUI 启动时自动拉起 agent，退出时回收 | 1 | P1.5 |
 | 4.2 | 核心动作移植 | RandomWait、SwitchSoul、ClearHitCount、RepeatChallengeNTimes、BonusToggleAction、TimeCheck、RandomSwipe、ReStartGame | agent 动作集 A | 8 个动作冒烟通过 | 3 | 4.1 |
 | 4.3 | 高级动作移植 | HumanTouch、ChallengeDungeonBoss、BattleTeam、RandomTouch、RandomTask、QuestionMatcher、Guess、AutoFoster、AutoBattle | agent 动作集 B | 9 个动作冒烟通过 | 2 | 4.2 |
 | 4.4 | 自定义识别移植 | TaskCounterRecognition（次数识别）、CoBattleTargetRecognition（组队目标识别） | agent 识别集 | 识别结果与截图比对正确 | 1 | 4.1 |
@@ -135,6 +135,7 @@
 | Win32 后台点击在部分版本失效 | P1.4 | 鼠标/键盘方式配置化（SendMessage/PostMessage/… 可选） |
 | **DPI 缩放致截图黑边、点击坐标偏移** | P1.4（已验证 125% 下偏移约 200px） | **截图强制 FramePool（并保留 PrintWindow 回退）；进程声明 PerMonitorV2 DPI 感知** |
 | **主界面 UI 点击需窗口前台**（10 组对照实测） | P2/P5 | **混合输入：打开面板时 SetForegroundWindow 一次，面板内全程后台消息；降低抢焦点频次** |
+| **Go 绑定版本陷阱**（v1.x 无 AgentServer，v4 需 Go 1.25） | P4 | agent 固定用 maa-framework-go/v4；SDK 不足时由 Go toolchain 自动下载，构建脚本显式固定版本 |
 | Go agent 与 C# GUI 通信稳定性 | P4 | socket 心跳 + 断线重连 + 子进程守护重启 |
 | 29 任务同时适配工作量大 | P3 | 按「日常→副本→PVP→活动」优先级分批验收，活动类后置 |
 | MAA 设置体系庞大导致范围蔓延 | P6 | 11 类设置按「系统类→应用类」两批交付，每批评审后冻结 |

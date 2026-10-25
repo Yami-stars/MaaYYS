@@ -24,16 +24,27 @@ MaaYYS/
 
 ## 构建
 
-前置：.NET SDK 9+、Go 1.24+（本项目 Go 位于 `environment/go`，无需系统安装）。
+前置：.NET SDK 9+、Go 1.25+（Go 位于 `environment/go`，无需系统安装；
+若 SDK 低于 1.25，`go build` 会通过 toolchain 机制自动下载所需版本）。
 
 ```powershell
 # C#
 dotnet build MaaYss.sln
 
-# Go agent
-$env:GOPATH = "D:\WorkBuddy-Work\MaaYYS\environment\gopath"
-$env:PATH = "D:\WorkBuddy-Work\MaaYYS\environment\go\bin;$env:PATH"
-go build ./agent/...
+# Go agent（GOPROXY 用国内镜像可显著提速）
+$env:GOPATH  = "D:\WorkBuddy-Work\MaaYYS\environment\gopath"
+$env:GOCACHE = "D:\WorkBuddy-Work\MaaYYS\environment\gocache"
+$env:GOPROXY = "https://goproxy.cn,direct"
+& "D:\WorkBuddy-Work\MaaYYS\environment\go\bin\go.exe" build -o agent.exe ./agent
+```
+
+运行各阶段验证：
+
+```powershell
+dotnet run --project src/MaaYss.P1Probe -- engine   # P1.2
+dotnet run --project src/MaaYss.P1Probe -- pi       # P1.3
+dotnet run --project src/MaaYss.P1Probe -- win32    # P1.4（--click/--resize/--screencap-method 等）
+dotnet run --project src/MaaYss.P1Probe -- agent    # P1.5（自动拉起 Go agent 子进程）
 ```
 
 ## 运行库来源
@@ -55,8 +66,25 @@ go build ./agent/...
 | 1.2 | 引擎集成验证 | ✅ 完成 |
 | 1.3 | PI V2 协议解析验证 | ✅ 完成 |
 | 1.4 | Win32 控制链路验证 | ✅ 完成（含 4 项超出预期的架构结论） |
-| 1.5 | Agent 链路验证 | 进行中 |
+| 1.5 | Agent 链路验证 | ✅ 完成 |
 | 1.6 | 技术方案评审 | 待开始 |
+
+## P1.5 验证结果（2026-10-26）
+
+`dotnet run --project src/MaaYss.P1Probe -- agent`：探针（C#，AgentClient）自动拉起 Go agent 子进程并完成一次完整调用。
+
+- 握手：`AgentClient.CreateTcp(7788)` → `identifier=7788` → 启动 `agent.exe 7788 --libdir <maafw>` → `Connected=True Alive=True`
+- 注册清单回读：`custom_action=[MaaYssProbeAction]`、`custom_recognition=[MaaYssProbeRecognition]`
+- pipeline 调用：`recognition` 收到 `param={"probe":"p15"}`、`roi=[0 0 720 720]`、图像非空；`action` 收到 `param={"hello":"maayss"}`、`box=[0 0 10 10]`（即 recognition 返回的框）
+- 结果：`PostTask -> Succeeded`，agent 侧痕迹文件校验通过，子进程 `exit=0` 优雅退出
+
+关键结论（P4 架构依据）：
+1. **Go 绑定必须走 v4 模块路径**：`github.com/MaaXYZ/maa-framework-go/v4`（MaaYYs 的 agent 亦用 `v4.0.0-beta.12`，已用 `go version -m` 对其 exe 实证）。
+   v1.x 线（最高 v1.7.0）**不含 AgentServer 绑定**，无法做 agent。
+2. **v4.0.0 要求 Go 1.25.0**；本地 SDK 为 1.24.12，但 Go 的 toolchain 机制会自动下载 go1.25.0，无需手工升级 SDK。
+3. **调用顺序有硬约束**：`BindResource` 必须在 `Connect` 之前（否则框架报 `resource is not bound` 拒绝握手）。
+4. **销毁顺序有硬约束**：`Resource` 必须在 `AgentClient.Disconnect` 之后销毁，否则 client 内部持有悬垂指针，Disconnect 触发 `0xC0000005`。
+5. `MaaStringListBufferAt` 返回的是借用的 `MaaStringBuffer*`，需再经 `MaaStringBufferGet` 取 `char*`（直接当字符串读会得到乱码）。
 
 ## P1.2 验证结果（2026-10-25，v5.15.0-beta.1 回归通过）
 

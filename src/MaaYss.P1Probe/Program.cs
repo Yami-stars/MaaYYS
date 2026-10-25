@@ -7,7 +7,8 @@ using MaaYss.P1Probe;
 //   pi [路径]          P1.3 PI V2 协议解析验证（默认解析 MaaYYs 的 interface.json）
 //   win32 [路径] [--hwnd 0x..] [--click x,y] [--swipe x1,y1,x2,y2,ms]
 //                      P1.4 Win32 控制链路验证（默认解析 MaaYYs 的 interface.json）
-//   agent              P1.5 Agent 链路（待实现）
+//   agent [--port N] [--agent 路径] [--libdir 路径]
+//                      P1.5 Agent 链路验证（拉起 Go agent 子进程并调用其 custom action/recognition）
 
 // DPI 感知设置：阴阳师桌面版为 DPI 感知进程（物理客户端 1431x805），
 // 若本进程 DPI 无感知，Seize 等依赖 ClientToScreen 的输入方法会因坐标虚拟化（125% 缩放）而整体偏移。
@@ -21,6 +22,7 @@ int exitCode = command switch
     "engine" => await ProbeEngine.RunAsync(args.Length > 1 ? args[1] : null),
     "pi" => await ProbePi.RunAsync(args.Length > 1 ? args[1] : null),
     "win32" => await ProbeWin32.RunAsync(args),
+    "agent" => await ProbeAgent.RunAsync(args),
     _ => RunSmoke(),
 };
 

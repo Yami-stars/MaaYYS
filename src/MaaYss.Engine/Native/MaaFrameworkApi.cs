@@ -238,4 +238,66 @@ internal static class MaaFrameworkApi
 
     [DllImport(ToolkitLib, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr MaaToolkitDesktopWindowGetWindowName(IntPtr window);
+
+    // ---- AgentClient（MaaAgentClient.dll，P1.5）----
+    // 签名核对自 v5.15.0-beta.1 include/MaaAgentClient/MaaAgentClientAPI.h。
+    // 注意：Identifier 为 in/out 参数——CreateV2 时由调用方写入期望名称，
+    // 返回后由框架改写为实际使用的 identifier（TCP 模式下为端口号字符串）。
+
+    private const string AgentClientLib = "MaaAgentClient";
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr MaaAgentClientCreateV2(MaaStringBufferHandle identifier);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr MaaAgentClientCreateTcp(ushort port);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void MaaAgentClientDestroy(IntPtr client);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientIdentifier(MaaAgentClientHandle client, MaaStringBufferHandle identifier);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientBindResource(MaaAgentClientHandle client, MaaResourceHandle res);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientConnect(MaaAgentClientHandle client);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientDisconnect(MaaAgentClientHandle client);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientConnected(MaaAgentClientHandle client);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientAlive(MaaAgentClientHandle client);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientSetTimeout(MaaAgentClientHandle client, long milliseconds);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientGetCustomRecognitionList(
+        MaaAgentClientHandle client, MaaStringListBufferHandle buffer);
+
+    [DllImport(AgentClientLib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaAgentClientGetCustomActionList(
+        MaaAgentClientHandle client, MaaStringListBufferHandle buffer);
+
+    // ---- StringListBuffer（MaaFramework.dll，读取 agent 注册列表用）----
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr MaaStringListBufferCreate();
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void MaaStringListBufferDestroy(IntPtr buffer);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern byte MaaStringListBufferIsEmpty(IntPtr buffer);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ulong MaaStringListBufferSize(IntPtr buffer);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr MaaStringListBufferAt(IntPtr buffer, ulong index);
 }

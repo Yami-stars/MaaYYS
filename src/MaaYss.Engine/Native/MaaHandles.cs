@@ -132,6 +132,76 @@ public sealed class MaaToolkitDesktopWindowListHandle : SafeHandle
 }
 
 /// <summary>
+/// MaaAgentClient 原生句柄安全封装（MaaAgentClientCreateV2/CreateTcp + Destroy）。
+/// 用于连接 Go agent 子进程（MaaAgentServer），把其注册的 custom action/recognition 绑定到本地 Resource。
+/// </summary>
+public sealed class MaaAgentClientHandle : SafeHandle
+{
+    public MaaAgentClientHandle()
+        : base(IntPtr.Zero, ownsHandle: true)
+    {
+    }
+
+    public MaaAgentClientHandle(IntPtr ptr)
+        : base(IntPtr.Zero, ownsHandle: true) => SetHandle(ptr);
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    protected override bool ReleaseHandle()
+    {
+        MaaFrameworkApi.MaaAgentClientDestroy(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// MaaStringListBuffer 原生句柄安全封装（MaaStringListBufferCreate/Destroy）。
+/// 用于读取 agent 注册的 custom action / recognition 名称列表。
+/// 注意：MaaStringListBufferAt 返回的是内部 MaaStringBuffer*（借用指针，不可销毁）。
+/// </summary>
+public sealed class MaaStringListBufferHandle : SafeHandle
+{
+    public MaaStringListBufferHandle()
+        : base(IntPtr.Zero, ownsHandle: true)
+    {
+    }
+
+    public MaaStringListBufferHandle(IntPtr ptr)
+        : base(IntPtr.Zero, ownsHandle: true) => SetHandle(ptr);
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    public ulong Count => MaaFrameworkApi.MaaStringListBufferSize(handle);
+
+    /// <summary>读取全部字符串（UTF-8）。空列表返回空数组。</summary>
+    public string[] ToArray()
+    {
+        if (IsInvalid)
+        {
+            return [];
+        }
+
+        ulong size = Count;
+        var items = new string[size];
+        for (ulong i = 0; i < size; i++)
+        {
+            // At 返回的是借用的 MaaStringBuffer*，需再经 MaaStringBufferGet 取内部 char*。
+            IntPtr at = MaaFrameworkApi.MaaStringListBufferAt(handle, i);
+            IntPtr str = at == IntPtr.Zero ? IntPtr.Zero : MaaFrameworkApi.MaaStringBufferGet(at);
+            items[i] = MaaFramework.FromUtf8Native(str) ?? string.Empty;
+        }
+
+        return items;
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        MaaFrameworkApi.MaaStringListBufferDestroy(handle);
+        return true;
+    }
+}
+
+/// <summary>
 /// 无格式 24 位 BMP 编码器（自包含，无外部依赖）。
 /// 输入为 BGR（3 通道）或 BGRA（4 通道）8 位像素，输出标准 24 位 BMP（行底向上、4 字节对齐）。
 /// </summary>

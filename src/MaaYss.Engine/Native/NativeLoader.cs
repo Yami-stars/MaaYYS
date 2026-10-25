@@ -19,6 +19,7 @@ internal static class NativeLoader
     {
         ["MaaFramework"] = "MaaFramework.dll",
         ["MaaToolkit"] = "MaaToolkit.dll",
+        ["MaaAgentClient"] = "MaaAgentClient.dll",
     };
 
     /// <summary>模块加载时自动注册解析器（无需显式调用）。</summary>
