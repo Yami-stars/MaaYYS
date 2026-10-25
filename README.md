@@ -54,8 +54,8 @@ go build ./agent/...
 | 1.1 | 开发环境搭建与脚手架 | ✅ 完成 |
 | 1.2 | 引擎集成验证 | ✅ 完成 |
 | 1.3 | PI V2 协议解析验证 | ✅ 完成 |
-| 1.4 | Win32 控制链路验证 | ✅ 完成（点击验证待显式执行，策略 A） |
-| 1.5 | Agent 链路验证 | 待开始 |
+| 1.4 | Win32 控制链路验证 | ✅ 完成（含 4 项超出预期的架构结论） |
+| 1.5 | Agent 链路验证 | 进行中 |
 | 1.6 | 技术方案评审 | 待开始 |
 
 ## P1.2 验证结果（2026-10-25，v5.15.0-beta.1 回归通过）
@@ -80,19 +80,41 @@ go build ./agent/...
 - 官方硬校验三项：`interface_version == 2`、控制器类型合法、任务引用的 option 必须存在于合并池
 - **流程表修正**：原「32 个任务入口」为按 tasks/ 目录文件数的误计数；按 PI V2 语义只有 import 引用的 29 个构成任务入口（3 个孤儿文件不加载），流程表全文已同步修正
 
-## P1.4 验证结果（2026-10-25）
+## P1.4 验证结果（2026-10-25 ~ 26）
 
-`dotnet run --project src/MaaYss.P1Probe -- win32`（默认解析 MaaYYs 的 interface.json，游戏窗口实测运行中）：
+`dotnet run --project src/MaaYss.P1Probe -- win32`（游戏窗口实测运行中）：
 
-- 窗口枚举命中 1 个：`hWnd=0x1805EC class=[Win32Window] title=[阴阳师-网易游戏]`（window_regex 放宽为「阴阳师」后命中当前窗口标题）
+- 窗口枚举命中 1 个：`hWnd=0x1805EC class=[Win32Window] title=[阴阳师-网易游戏]`
 - 连接：`PostConnection -> Succeeded`，`Connected=True`，`Uuid=00000000001805EC`
-- Info JSON 证实方法生效：`screencap_method=16`（PrintWindow）、`mouse/keyboard_method=2`（SendMessage），与 interface.json 配置一致
-- 截图：`1280x720`（短边 720 缩放生效）3 通道 BGR，平均亮度 107.7/255，非黑像素 64.1% —— 后台截图抓到了真实庭院画面（不抢焦点）
-- 原始分辨率 `1431x805`，缩放关系正确
+- 截图：FramePool 下非黑像素 **97~100%**，画面完整覆盖客户区（PrintWindow 仅 64.1%）
+- 点击：好友按钮（截图坐标 894,675 = 客户区 1000,755）前台点击 → 好友面板打开；面板内「添加」按钮后台点击 → 添加界面打开
 
 实现要点：
-- `Native/`：Toolkit 窗口枚举 API（MaaToolkit.dll，NativeLoader 已扩展解析）+ Win32 控制器全套 Post/Wait API + ImageBuffer/StringBuffer 封装（`MaaHandles.cs`：SafeHandle + BMP 自编码）
-- 托管封装：`MaaDesktopWindows`（正则过滤语义对齐 `boost::regex_search` 子串匹配）、`MaaWin32Controller`（连接/截图/点击/滑动/SetOption）
-- 点击验证按用户选定策略 A：默认仅验证到截图，点击/滑动须 `--click x,y` / `--swipe ...` 显式执行（执行前打印坐标）
+- `Native/`：Toolkit 窗口枚举 API（MaaToolkit.dll）+ Win32 控制器全套 Post/Wait API + ImageBuffer/StringBuffer 封装
+- 托管封装：`MaaDesktopWindows`（正则语义对齐 `boost::regex_search` 子串匹配）、`MaaWin32Controller`
+- 探针参数：`--click x,y` / `--swipe ...`（策略 A：默认仅截图，输入须显式传参）、`--resize=WxH`、`--screencap-method=`、`--mouse-method=`、`--foreground`、`--children`
+
+### 四项关键结论（P2 架构决策依据）
+
+1. **截图方法必须 FramePool，不能用 PrintWindow**
+   游戏渲染 1145x644 拉伸 ×1.25 铺满 1431x805 客户区；PrintWindow 只抓到渲染层，截图右侧/底部为黑边（实测右 254px / 下 144px）。
+   框架按「截图尺寸/客户区」等比映射，黑边导致点击坐标整体偏移约 200px（曾误点到阴阳寮/花合战）。
+   FramePool 抓完整客户区，映射精确成立，无需修正。
+   → 已实现 `CreateWithFallback`：首选 → FramePool → PrintWindow，连接失败/截图空/全黑/黑边 >10% 自动回退；
+   `ScreenshotResult` 带 `BlackBorderRight/Bottom` 测量。
+   注：MAA 官方 Default 档案同样是 `FramePool + PostMessageWithCursorPos`（界面上的 PrintWindow+Seize 为手动历史档案）。
+
+2. **主界面（庭院场景层）UI 点击必须窗口前台**
+   后台 SendMessage 点击好友按钮 10 余次全部无效；完整 MOVE→DOWN→UP 序列、移动物理光标、伪造 `WM_ACTIVATE` 均无效。
+   加 `--foreground`（`SetForegroundWindow` 后点击）即一次成功。
+
+3. **二级面板内 UI 后台消息即可驱动**
+   面板关闭按钮 (1172,160)、面板内「添加」按钮 (1215,296) 后台 SendMessage 点击均生效。
+   → 建议 P2 采用混合输入策略：开面板时前台一次，面板内全程后台。
+
+4. **探针进程需 PerMonitorV2 DPI 感知**
+   系统 125% 缩放下，DPI-unaware 进程 `GetClientRect` 返回虚拟化坐标，Seize/光标类方法会整体点偏。已在 `Program.cs` 设置。
+
+排查教训：截图目测坐标必须按缩放比换算（Read 显示的是缩略图），多次目测判读出错；程序化检测（红×像素占比、全屏差异）远可靠于目测。
 
 验证截图（debug/win32-screenshot-*.bmp，已 gitignore）。
