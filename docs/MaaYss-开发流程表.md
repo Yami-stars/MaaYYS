@@ -13,7 +13,7 @@
 | P0 | 知识获取与立项 | 完成参考对象分析、技术选型、开发流程评审 | 2 ✅ | 本报告 + 流程表评审通过 |
 | P1 | 技术预研与原型验证 | 打通 MaaFramework 全链路，验证 Win32 控制可行性 | 5 | 原型机能连桌面端并完成一次完整识别+点击 |
 | P2 | 基础框架搭建 | GUI 骨架 + 引擎封装 + 设备管理 + 配置系统 | 8 | 能连接设备、加载资源、跑通一个 pipeline |
-| P3 | 资源层移植 | pipeline/模板图/模型/任务定义从 MaaYYs 移植重构 | 10 | 32 个任务全部可加载、JSON 校验通过 |
+| P3 | 资源层移植 | pipeline/模板图/模型/任务定义从 MaaYYs 移植重构 | 10 | 29 个任务全部可加载、JSON 校验通过 |
 | P4 | Agent 功能移植 | Go agent 19 动作 + 2 识别移植 | 7 | agent 子进程注册成功，冒烟通过 |
 | P5 | 核心功能实现 | 任务队列/选项系统/执行引擎/定时/日志 | 10 | 端到端跑通「自动御魂」全流程 |
 | P6 | UI 与设置体系 | 对标 MAA 的主界面 + 11 类设置中心 | 8 | 设置项全量落地，界面交互达标 |
@@ -31,7 +31,7 @@
 |---|---|---|---|---|---|---|
 | 1.1 | 开发环境搭建 | Go 1.24 / .NET 8 SDK / MaaFramework 运行库解压；仓库脚手架（.gitignore、README 骨架） | 可构建的空工程 | `go build`、`dotnet build` 均通过 | 0.5 | — |
 | 1.2 | 引擎集成验证 | C# P/Invoke 或 Maa.Framework 绑定 MaaFramework.dll；创建 MaaInstance、MaaTasker | 引擎封装 Demo | 能调用 MaaTaskerPostTask 并收到回调 | 1 | 1.1 |
-| 1.3 | PI V2 协议解析验证 | 加载 interface.json，验证 controller/resource/import 解析，多 bundle 覆盖语义 | 资源加载 Demo | 控制台打印出 8 个渠道服资源、32 任务入口 | 1 | 1.2 |
+| 1.3 | PI V2 协议解析验证 | 加载 interface.json，验证 controller/resource/import 解析，多 bundle 覆盖语义 | 资源加载 Demo | 控制台打印出 8 个渠道服资源、29 个 import 任务入口（另识别 3 个未引用孤儿文件） | 1 | 1.2 |
 | 1.4 | Win32 控制链路验证 | Win32 控制单元连接桌面端（类名 Win32Window + 标题正则）；PrintWindow 截图；SendMessage 后台点击 | 可运行的连接 Demo | 桌面端窗口截图成功，后台点击有响应 | 1 | 1.2 |
 | 1.5 | Agent 链路验证 | maa-framework-go 起 MaaAgentServer；注册一个测试 custom_action；pipeline 引用并调通 | agent 最小闭环 | 日志出现 agent 注册成功 + action 被调用 | 1 | 1.1 |
 | 1.6 | 技术方案评审 | 评审绑定方式（P/Invoke vs NuGet）、agent 语言、目录规范 | 评审结论 | 方案确认，风险记录在案 | 0.5 | 1.2-1.5 |
@@ -54,7 +54,7 @@
 | 3.1 | pipeline 移植与整理 | 51 个 pipeline 文件全量移植；统一命名规范；清理无效/调试节点（debug.json/test.json 剔除） | `resource/base/pipeline/` | JSON 全部可解析；节点引用无悬空 | 2 | P2 |
 | 3.2 | 模板图移植 | 710 张模板图迁移；建立 `任务名/节点名_序号.png` 命名规范；压缩去重 | `resource/base/image/` | pipeline 中 template 引用 100% 有对应文件 | 1.5 | 3.1 |
 | 3.3 | ONNX 模型移植 | OCR（det/rec/keys）+ 7 个检测模型（Courtyard v5/v6、BarrierCard、Barrier_v1、special-icon ×2） | `resource/base/model/` | NeuralNetworkDetect 节点可加载推理 | 1 | 3.1 |
-| 3.4 | 任务定义移植 | 32 个 tasks/*.json 移植：task 声明 + option 体系（select/switch/input + pipeline_override + 占位符注入） | `tasks/` | GUI 选项面板渲染全部 32 任务参数 | 2 | 3.1 |
+| 3.4 | 任务定义移植 | 29 个 import 任务定义移植：task 声明 + option 体系（select/switch/input + pipeline_override + 占位符注入） | `tasks/` | GUI 选项面板渲染全部 29 任务参数 | 2 | 3.1 |
 | 3.5 | 渠道服分层重构 | base + 8 渠道层（official/taptap/bilibili/huawei/tencent/OPPO/vivo）差异资源隔离；登录流程差异覆盖验证 | `resource/<渠道>/` | 每个渠道资源均可独立加载 | 1.5 | 3.1 |
 | 3.6 | interface.json 编写 | PI V2 入口：controller（Win32 参数可配置化）/ resource / agent / group / import / setting（MXU 扩展） | 根目录 interface.json | 通过 PI schema 校验；MXU 也能加载（交叉兼容） | 2 | 3.4,3.5 |
 
@@ -100,7 +100,7 @@
 
 | # | 任务 | 内容说明 | 交付物 | 验证标准 | 工期 | 依赖 |
 |---|---|---|---|---|---|---|
-| 8.1 | 全功能冒烟 | 32 个任务逐一冒烟（从庭院启动）；异常场景（断连、窗口最小化、弹窗干扰） | 冒烟报告 | 32/32 有明确结论；阻断性问题清零 | 2 | P5-P7 |
+| 8.1 | 全功能冒烟 | 29 个任务逐一冒烟（从庭院启动）；异常场景（断连、窗口最小化、弹窗干扰） | 冒烟报告 | 29/29 有明确结论；阻断性问题清零 | 2 | P5-P7 |
 | 8.2 | 兼容性矩阵测试 | Win10/Win11；桌面端多版本；庭院皮肤 v5/v6；8 渠道服登录流程；模拟器 ADB | 兼容性报告 | 各组合有记录；已知问题分级 | 1 | 8.1 |
 | 8.3 | CI/CD | GitHub Actions：多架构（x64/arm64）打包；git-cliff 生成 changelog；tag 触发 Release；JSON 校验 + agent 编译门禁 | 工作流 | push tag 自动产出可安装包 | 1.5 | P7 |
 | 8.4 | 文档与帮助 | README、使用手册（安装/连接/任务/设置/FAQ）、开发文档（pipeline 规范/agent 扩展/资源热更新）、免责声明 | 文档集 | 新手按文档 10 分钟内跑通首个任务 | 1 | P7 |
@@ -114,10 +114,10 @@
 |---|---|---|
 | M1 原型打通 | P1 末 | Win32 连桌面端 + 一次完整「识别→点击」闭环；agent 链路通 |
 | M2 框架就绪 | P2 末 | GUI 骨架 + 引擎封装 + 配置系统可用；单任务跑通 |
-| M3 资源就绪 | P3 末 | 32 任务全量加载；渠道服切换正常；MXU 交叉兼容 |
+| M3 资源就绪 | P3 末 | 29 任务全量加载；渠道服切换正常；MXU 交叉兼容 |
 | M4 功能就绪 | P5 末 | **「自动御魂」端到端全自动运行 ≥1 小时无阻断**（含换阵容/加成/次数识别） |
 | M5 体验达标 | P6 末 | 设置中心 11 类全量落地；界面交互评审通过 |
-| M6 发布候选 | P8 末 | 冒烟 32/32、CI 自动出包、文档齐全、灰度可回滚 |
+| M6 发布候选 | P8 末 | 冒烟 29/29、CI 自动出包、文档齐全、灰度可回滚 |
 
 ## 4. 工期与人力估算
 
@@ -133,7 +133,7 @@
 | 桌面端更新导致识别素材失效 | P3/P8 | 资源与程序分离，支持资源包独立热更新（对标 MaaYYs CI 仅发资源） |
 | Win32 后台点击在部分版本失效 | P1.4 | 鼠标/键盘方式配置化（SendMessage/PostMessage/… 可选） |
 | Go agent 与 C# GUI 通信稳定性 | P4 | socket 心跳 + 断线重连 + 子进程守护重启 |
-| 32 任务同时适配工作量大 | P3 | 按「日常→副本→PVP→活动」优先级分批验收，活动类后置 |
+| 29 任务同时适配工作量大 | P3 | 按「日常→副本→PVP→活动」优先级分批验收，活动类后置 |
 | MAA 设置体系庞大导致范围蔓延 | P6 | 11 类设置按「系统类→应用类」两批交付，每批评审后冻结 |
 | OCR 识别队名/层数失败 | P8 | 预设名称规范提示 + 识别置信度日志 + 失败跳过策略 |
 

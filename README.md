@@ -53,6 +53,7 @@ go build ./agent/...
 |---|---|---|
 | 1.1 | 开发环境搭建与脚手架 | ✅ 完成 |
 | 1.2 | 引擎集成验证 | ✅ 完成 |
+| 1.3 | PI V2 协议解析验证 | ✅ 完成 |
 | 1.3 | PI V2 协议解析验证 | 待开始 |
 | 1.4 | Win32 控制链路验证 | 待开始 |
 | 1.5 | Agent 链路验证 | 待开始 |
@@ -66,3 +67,16 @@ go build ./agent/...
 - 引擎层：`src/MaaYss.Engine/Native/`（P/Invoke + DllImportResolver 定位 `third_party/maafw`）、`MaaResource` / `MaaTasker` / `MaaNullController` 托管封装（SafeHandle + UTF-8 marshalling）
 - 自定义控制器 `MaaNullController`：官方运行库未分发 `MaaDbgControlUnit.dll`，改用 `MaaCustomControllerCreate` 扩展点实现 1x1 静态截图控制器（无额外 DLL 依赖）
 - 注意：v5.13 起 API 为 Tasker 中心化（无 MaaInstance）；`pipeline_override` 必须传合法 JSON 字符串（官方绑定默认 `{}`，传 null 会触发框架 UB）
+
+## P1.3 验证结果（2026-10-25）
+
+`dotnet run --project src/MaaYss.P1Probe -- pi`（默认解析 MaaYYs 的 interface.json，可传路径覆盖）：
+- 8 个渠道服资源 bundle 全部解析，加载链正确（base ← 渠道层，后者覆盖前者）
+- 29 个 import 任务入口合并成功（29/29 文件解析通过），94 个 option 池（同名先到先得）
+- 交叉校验通过：option / group / resource / controller 引用全部有效，资源路径全部存在
+- 识别出 3 个未被 import 引用的孤儿任务文件（活动-小超鬼王 / 自动业原火 / 限时活动）与 1 个孤儿资源目录（test/）
+
+关键结论（均经官方源码实证）：
+- import 合并语义对齐 MaaPiCli `Parser.cpp`：task/preset 追加；option 为 `unordered_map::insert` 语义——**同名先到先得，顶层 interface.json 优先**
+- 官方硬校验三项：`interface_version == 2`、控制器类型合法、任务引用的 option 必须存在于合并池
+- **流程表修正**：原「32 个任务入口」为按 tasks/ 目录文件数的误计数；按 PI V2 语义只有 import 引用的 29 个构成任务入口（3 个孤儿文件不加载），流程表全文已同步修正
