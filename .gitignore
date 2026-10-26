@@ -35,5 +35,6 @@ Thumbs.db
 desktop.ini
 
 # 运行期配置（便携配置随程序目录生成，不入库）
-src/**/config/
-config/
+# 注意：只忽略「仓库根」的 config/。运行期配置实际写在 bin/ 下（已被上面的 bin/ 忽略）；
+# 不能写 src/**/config/ 或裸 config/，否则会误伤源码目录 src/MaaYys.Engine/Config/。
+/config/

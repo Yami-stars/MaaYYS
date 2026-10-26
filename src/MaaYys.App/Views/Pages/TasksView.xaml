@@ -168,6 +168,90 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- 选项行模板（任务级与全局级共用）：select/switch/checkbox/input 四种渲染 -->
+        <DataTemplate x:Key="OptionRowTemplate">
+            <Border Margin="{Binding IndentMargin}" Padding="0,6"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                <StackPanel>
+                    <WrapPanel>
+                        <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="SemiBold" />
+                        <Border Margin="8,0,0,0" Padding="5,0" CornerRadius="3"
+                                Background="{DynamicResource NavBackgroundBrush}" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding TypeLabel}" FontSize="10"
+                                       Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                        </Border>
+                    </WrapPanel>
+
+                    <TextBlock Text="{Binding Description}" Style="{StaticResource HintText}"
+                               Margin="0,2,0,0"
+                               Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibility}}" />
+
+                    <!-- select / switch -->
+                    <Grid Margin="0,6,0,0" HorizontalAlignment="Left"
+                          Visibility="{Binding IsSingleChoice, Converter={StaticResource BoolToVisibility}}">
+                        <ComboBox Height="28" Width="240"
+                                  ItemsSource="{Binding Choices}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" />
+                        <TextBlock Text="（未选择，按默认处理）" FontSize="11" Margin="9,0,0,0"
+                                   VerticalAlignment="Center" IsHitTestVisible="False"
+                                   Foreground="{DynamicResource ForegroundSecondaryBrush}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedIndex}" Value="-1">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+
+                    <!-- checkbox -->
+                    <ItemsControl ItemsSource="{Binding Choices}" Margin="0,6,0,0"
+                                  Visibility="{Binding IsCheckbox, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding Label}" FontSize="12"
+                                          Margin="0,0,16,6"
+                                          IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- input -->
+                    <ItemsControl ItemsSource="{Binding Inputs}" Margin="0,4,0,0"
+                                  Visibility="{Binding IsInput, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                               FontSize="11" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBox Height="26" VerticalContentAlignment="Center"
+                                                 Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="{Binding Hint}" FontSize="10"
+                                                   Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid>
@@ -236,139 +320,111 @@
             </Grid>
         </Border>
 
-        <!-- 右：参数面板 + 编译预览 -->
+        <!-- 右：参数面板 + 编译预览（任务参数 / 全局选项 两个页） -->
         <Border Grid.Column="1" CornerRadius="8"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 头部 -->
-                <Border Grid.Row="0" Padding="14,10" BorderBrush="{DynamicResource BorderBrush}"
-                        BorderThickness="0,0,0,1">
-                    <Grid>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="{Binding TaskHeader}" FontSize="14" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding TaskHint}" Style="{StaticResource HintText}" Margin="0,2,0,0" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Button Content="恢复本任务默认" Height="26" Padding="10,0" Margin="0,0,6,0"
-                                    Command="{Binding ResetTaskCommand}" />
-                            <Button Content="清空本组参数" Height="26" Padding="10,0"
-                                    Command="{Binding ResetAllCommand}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <TabControl Grid.Row="0" BorderThickness="0" Padding="0">
+                    <!-- 任务参数 -->
+                    <TabItem Header="任务参数">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                <!-- 参数区 -->
-                <ScrollViewer Grid.Row="1" Padding="14,6,14,10" VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <ItemsControl ItemsSource="{Binding OptionRows}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="{Binding IndentMargin}" Padding="0,6"
-                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                                        <StackPanel>
-                                            <WrapPanel>
-                                                <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="SemiBold" />
-                                                <Border Margin="8,0,0,0" Padding="5,0" CornerRadius="3"
-                                                        Background="{DynamicResource NavBackgroundBrush}"
-                                                        VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding TypeLabel}" FontSize="10"
-                                                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                                </Border>
-                                            </WrapPanel>
+                            <Border Grid.Row="0" Padding="14,10" BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TaskHeader}" FontSize="14" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding TaskHint}" Style="{StaticResource HintText}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <Button Content="恢复本任务默认" Height="26" Padding="10,0" Margin="0,0,6,0"
+                                                Command="{Binding ResetTaskCommand}" />
+                                        <Button Content="清空本组参数" Height="26" Padding="10,0"
+                                                Command="{Binding ResetAllCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
 
-                                            <TextBlock Text="{Binding Description}" Style="{StaticResource HintText}"
-                                                       Margin="0,2,0,0"
-                                                       Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibility}}" />
+                            <ScrollViewer Grid.Row="1" Padding="14,6,14,10" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <ItemsControl ItemsSource="{Binding OptionRows}"
+                                                  ItemTemplate="{StaticResource OptionRowTemplate}" />
 
-                                            <!-- select / switch -->
-                                            <Grid Margin="0,6,0,0" HorizontalAlignment="Left"
-                                                  Visibility="{Binding IsSingleChoice, Converter={StaticResource BoolToVisibility}}">
-                                                <ComboBox Height="28" Width="240"
-                                                          ItemsSource="{Binding Choices}"
-                                                          DisplayMemberPath="Label"
-                                                          SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" />
-                                                <TextBlock Text="（未选择，按默认处理）" FontSize="11" Margin="9,0,0,0"
-                                                           VerticalAlignment="Center" IsHitTestVisible="False"
-                                                           Foreground="{DynamicResource ForegroundSecondaryBrush}">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding SelectedIndex}" Value="-1">
-                                                                    <Setter Property="Visibility" Value="Visible" />
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </Grid>
+                                    <TextBlock Text="编译后的 pipeline_override（P5 投递任务时使用，已含全局选项层）"
+                                               Style="{StaticResource SectionTitle}" />
+                                    <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True"
+                                             FontFamily="Consolas, Microsoft YaHei UI" FontSize="11"
+                                             Height="190" AcceptsReturn="True" TextWrapping="NoWrap"
+                                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                             Background="{DynamicResource NavBackgroundBrush}"
+                                             Foreground="{DynamicResource ForegroundPrimaryBrush}"
+                                             BorderBrush="{DynamicResource BorderBrush}" Padding="8" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
 
-                                            <!-- checkbox -->
-                                            <ItemsControl ItemsSource="{Binding Choices}" Margin="0,6,0,0"
-                                                          Visibility="{Binding IsCheckbox, Converter={StaticResource BoolToVisibility}}">
-                                                <ItemsControl.ItemsPanel>
-                                                    <ItemsPanelTemplate>
-                                                        <WrapPanel />
-                                                    </ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <CheckBox Content="{Binding Label}" FontSize="12"
-                                                                  Margin="0,0,16,6"
-                                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}" />
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
+                    <!-- 全局选项（MXU setting 扩展） -->
+                    <TabItem Header="全局选项"
+                             Visibility="{Binding HasGlobalOptions, Converter={StaticResource BoolToVisibility}}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                                            <!-- input -->
-                                            <ItemsControl ItemsSource="{Binding Inputs}" Margin="0,4,0,0"
-                                                          Visibility="{Binding IsInput, Converter={StaticResource BoolToVisibility}}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Grid Margin="0,4,0,0">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="150" />
-                                                                <ColumnDefinition Width="*" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <TextBlock Grid.Column="0" Text="{Binding Label}"
-                                                                       FontSize="11" VerticalAlignment="Center" />
-                                                            <StackPanel Grid.Column="1">
-                                                                <TextBox Height="26" VerticalContentAlignment="Center"
-                                                                         Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                                                <TextBlock Text="{Binding Hint}" FontSize="10"
-                                                                           Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                                            </StackPanel>
-                                                        </Grid>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            <Border Grid.Row="0" Padding="14,10" BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,0,0,1">
+                                <StackPanel>
+                                    <TextBlock Text="全局选项" FontSize="14" FontWeight="SemiBold" />
+                                    <TextBlock Text="这些设置对本配置组的所有任务生效；任务级同名选项会覆盖它们。"
+                                               Style="{StaticResource HintText}" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Border>
 
-                        <!-- 编译预览 -->
-                        <TextBlock Text="编译后的 pipeline_override（P5 投递任务时使用）"
-                                   Style="{StaticResource SectionTitle}" />
-                        <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True"
-                                 FontFamily="Consolas, Microsoft YaHei UI" FontSize="11"
-                                 Height="190" AcceptsReturn="True" TextWrapping="NoWrap"
-                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                                 Background="{DynamicResource NavBackgroundBrush}"
-                                 Foreground="{DynamicResource ForegroundPrimaryBrush}"
-                                 BorderBrush="{DynamicResource BorderBrush}" Padding="8" />
-                    </StackPanel>
-                </ScrollViewer>
+                            <ScrollViewer Grid.Row="1" Padding="14,6,14,10" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <ItemsControl ItemsSource="{Binding GlobalSections}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="0,4,0,10">
+                                                    <TextBlock Text="{Binding Label}" Style="{StaticResource SectionTitle}" />
+                                                    <TextBlock Text="{Binding Description}" Style="{StaticResource HintText}"
+                                                               Margin="0,0,0,4"
+                                                               Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibility}}" />
+                                                    <ItemsControl ItemsSource="{Binding Rows}"
+                                                                  ItemTemplate="{StaticResource OptionRowTemplate}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <TextBlock Text="全局选项贡献的 pipeline_override（并入每个任务）"
+                                               Style="{StaticResource SectionTitle}" />
+                                    <TextBox Text="{Binding GlobalPreview, Mode=OneWay}" IsReadOnly="True"
+                                             FontFamily="Consolas, Microsoft YaHei UI" FontSize="11"
+                                             Height="150" AcceptsReturn="True" TextWrapping="NoWrap"
+                                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                             Background="{DynamicResource NavBackgroundBrush}"
+                                             Foreground="{DynamicResource ForegroundPrimaryBrush}"
+                                             BorderBrush="{DynamicResource BorderBrush}" Padding="8" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
 
                 <!-- 底部消息 -->
-                <Border Grid.Row="2" Padding="14,8" BorderBrush="{DynamicResource BorderBrush}"
+                <Border Grid.Row="1" Padding="14,8" BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="0,1,0,0">
                     <TextBlock Text="{Binding Message}" FontSize="11" TextWrapping="Wrap"
                                Foreground="{DynamicResource ForegroundSecondaryBrush}" />

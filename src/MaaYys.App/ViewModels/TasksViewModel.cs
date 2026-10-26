@@ -179,6 +179,24 @@ public sealed class OptionRowViewModel : ViewModelBase
             : RawChoices.ToList().FindIndex(c => string.Equals(c.Name, name, StringComparison.Ordinal));
 }
 
+/// <summary>「全局选项」面板里的一个设置分组（对应 interface.json 的 setting 段）。</summary>
+public sealed class GlobalOptionSectionViewModel : ViewModelBase
+{
+    public GlobalOptionSectionViewModel(string label, string? description)
+    {
+        Label = label;
+        Description = description;
+    }
+
+    public string Label { get; }
+
+    public string? Description { get; }
+
+    public bool HasDescription => !string.IsNullOrWhiteSpace(Description);
+
+    public ObservableCollection<OptionRowViewModel> Rows { get; } = [];
+}
+
 /// <summary>
 /// 任务页（P3.4 参数面板 + P5.1 任务队列）：
 /// <para>
@@ -221,6 +239,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
         LoadCatalog();
         LoadQueue();
+        RebuildGlobalOptionRows();
     }
 
     public ObservableCollection<string> ConfigurationNames { get; } = [];
@@ -241,6 +260,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             _workspace?.Configurations.SetCurrent(value);
             LoadCatalog();
             LoadQueue();
+            RebuildGlobalOptionRows();
         }
     }
 
@@ -251,6 +271,33 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     public ObservableCollection<TaskCatalogItem> AvailableTasks { get; } = [];
 
     public ObservableCollection<OptionRowViewModel> OptionRows { get; } = [];
+
+    /// <summary>
+    /// 全局选项面板的分组（对应 interface.json 的 setting 段，MXU setting 扩展）。
+    /// 没有定义 setting 时为空，界面自动隐藏该 Tab。
+    /// </summary>
+    public ObservableCollection<GlobalOptionSectionViewModel> GlobalSections { get; } = [];
+
+    /// <summary>右侧面板当前选中的页（0=任务参数，1=全局选项）。</summary>
+    public int SelectedRightTab { get; set; }
+
+    private string _globalPreview = "{}";
+
+    /// <summary>全局选项编译后的 <c>pipeline_override</c>（预览用，展示全局层对所有任务的贡献）。</summary>
+    public string GlobalPreview
+    {
+        get => _globalPreview;
+        private set => SetProperty(ref _globalPreview, value);
+    }
+
+    private bool _hasGlobalOptions;
+
+    /// <summary>是否存在全局选项（有 setting 段定义时为 true，用于决定是否显示「全局选项」页）。</summary>
+    public bool HasGlobalOptions
+    {
+        get => _hasGlobalOptions;
+        private set => SetProperty(ref _hasGlobalOptions, value);
+    }
 
     public QueueItemViewModel? SelectedQueueItem
     {
@@ -589,36 +636,172 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
         foreach (TaskOptionDefinition row in rows)
         {
-            if (!config.MergedOptions.TryGetValue(row.Key, out OptionConfig? option))
+            if (!config.MergedOptions.TryGetValue(row.Key, out OptionConfig? option) || option is null)
             {
                 continue;
             }
 
-            IReadOnlyList<string> current = option.Type == "checkbox"
-                ? TaskOptions.ResolveValues(option, values)
-                : [TaskOptions.ResolveValue(option, values) ?? string.Empty];
-
-            List<InputRowViewModel> inputs = [];
-            foreach (InputConfig input in option.Inputs ?? [])
-            {
-                inputs.Add(new InputRowViewModel(
-                    new OptionInputField(
-                        input.Name, input.Label ?? input.Name, input.Description,
-                        input.Default ?? string.Empty, input.PipelineType ?? "string"),
-                    TaskOptions.ResolveInput(option, input, values),
-                    value => OnInputChanged(row.Key, input.Name, value)));
-            }
-
-            OptionRows.Add(new OptionRowViewModel(
-                row,
-                current,
-                inputs,
+            OptionRows.Add(BuildRow(
+                option, row, values,
                 value => OnSingleChoiceChanged(row.Key, value),
-                _ => OnCheckChanged(row.Key)));
+                _ => OnCheckChanged(row.Key),
+                (inputName, value) => OnInputChanged(row.Key, inputName, value)));
         }
 
         RefreshPreview();
         RaiseCommandStates();
+    }
+
+    /// <summary>用一份 option 定义 + 当前取值 + 三类回调构造一行参数视图（任务级与全局级共用）。</summary>
+    private OptionRowViewModel BuildRow(
+        OptionConfig option,
+        TaskOptionDefinition row,
+        IReadOnlyDictionary<string, string> values,
+        Action<string?> onSelect,
+        Action<bool> onCheck,
+        Action<string, string> onInput)
+    {
+        IReadOnlyList<string> current = option.Type == "checkbox"
+            ? TaskOptions.ResolveValues(option, values)
+            : [TaskOptions.ResolveValue(option, values) ?? string.Empty];
+
+        List<InputRowViewModel> inputs = [];
+        foreach (InputConfig input in option.Inputs ?? [])
+        {
+            inputs.Add(new InputRowViewModel(
+                new OptionInputField(
+                    input.Name, input.Label ?? input.Name, input.Description,
+                    input.Default ?? string.Empty, input.PipelineType ?? "string"),
+                TaskOptions.ResolveInput(option, input, values),
+                value => onInput(input.Name, value)));
+        }
+
+        return new OptionRowViewModel(row, current, inputs, onSelect, onCheck);
+    }
+
+    /// <summary>
+    /// 重建「全局选项」面板（MXU setting 扩展）：按 interface.json 的 setting 段逐组渲染，
+    /// 编辑回调写回配置组的 <see cref="TaskConfiguration.GlobalOptions"/>。
+    /// </summary>
+    private void RebuildGlobalOptionRows()
+    {
+        GlobalSections.Clear();
+
+        InterfaceConfig? config = _workspace?.Resources.Config;
+        if (config is null)
+        {
+            GlobalPreview = "{}";
+            return;
+        }
+
+        IReadOnlyDictionary<string, string> values = CurrentGroup()?.GlobalOptions
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (SettingSectionConfig section in config.MergedSettings)
+        {
+            var vm = new GlobalOptionSectionViewModel(section.Label ?? section.Name, section.Description);
+            IReadOnlyList<TaskOptionDefinition> rows = TaskOptions.Describe(config, section.Option ?? [], values);
+            foreach (TaskOptionDefinition row in rows)
+            {
+                if (!config.MergedOptions.TryGetValue(row.Key, out OptionConfig? option) || option is null)
+                {
+                    continue;
+                }
+
+                vm.Rows.Add(BuildRow(
+                    option, row, values,
+                    value => OnGlobalSingleChoiceChanged(row.Key, value),
+                    _ => OnGlobalCheckChanged(row.Key),
+                    (inputName, value) => OnGlobalInputChanged(row.Key, inputName, value)));
+            }
+
+            GlobalSections.Add(vm);
+        }
+
+        HasGlobalOptions = GlobalSections.Count > 0;
+        RefreshGlobalPreview();
+    }
+
+    private void OnGlobalSingleChoiceChanged(string optionKey, string? value)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        TaskConfiguration? group = CurrentGroup();
+        if (group is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(value))
+        {
+            group.GlobalOptions.Remove(optionKey);
+        }
+        else
+        {
+            group.GlobalOptions[optionKey] = value;
+        }
+
+        SaveGroup(group);
+        RebuildGlobalOptionRows();
+    }
+
+    private void OnGlobalCheckChanged(string optionKey)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        TaskConfiguration? group = CurrentGroup();
+        GlobalOptionSectionViewModel? section = GlobalSections.FirstOrDefault(s => s.Rows.Any(r => r.Key == optionKey));
+        OptionRowViewModel? row = section?.Rows.FirstOrDefault(r => r.Key == optionKey);
+        if (group is null || row is null)
+        {
+            return;
+        }
+
+        List<string> selected = [.. row.Choices.Where(c => c.IsChecked).Select(c => c.Name)];
+        if (selected.Count == 0)
+        {
+            group.GlobalOptions.Remove(optionKey);
+        }
+        else
+        {
+            group.GlobalOptions[optionKey] = string.Join(TaskOptions.ListSeparator, selected);
+        }
+
+        SaveGroup(group);
+        RebuildGlobalOptionRows();
+    }
+
+    private void OnGlobalInputChanged(string optionKey, string inputName, string value)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        TaskConfiguration? group = CurrentGroup();
+        if (group is null)
+        {
+            return;
+        }
+
+        string key = TaskOptions.InputKey(optionKey, inputName);
+        if (string.IsNullOrEmpty(value))
+        {
+            group.GlobalOptions.Remove(key);
+        }
+        else
+        {
+            group.GlobalOptions[key] = value;
+        }
+
+        SaveGroup(group);
+        RefreshGlobalPreview();   // 输入不影响面板结构，不重建以免丢焦点
     }
 
     private TaskSelection? EnsureEntry()
@@ -767,9 +950,13 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        IReadOnlyDictionary<string, string> global = CurrentGroup()?.GlobalOptions
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
         try
         {
-            string json = TaskOptions.Compile(config, task, sel.Options, out IReadOnlyList<string> warnings);
+            // 合并全局选项层（MXU setting 扩展）：全局默认值 + 当前任务级覆盖
+            string json = TaskOptions.Compile(config, task, sel.Options, global, out IReadOnlyList<string> warnings);
             Preview = warnings.Count == 0
                 ? Pretty(json)
                 : Pretty(json) + Environment.NewLine + Environment.NewLine + "⚠ " + string.Join(Environment.NewLine + "⚠ ", warnings);
@@ -777,6 +964,31 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         catch (JsonException ex)
         {
             Preview = $"编译失败：{ex.Message}";
+        }
+    }
+
+    private void RefreshGlobalPreview()
+    {
+        InterfaceConfig? config = _workspace?.Resources.Config;
+        if (config is null)
+        {
+            GlobalPreview = "{}";
+            return;
+        }
+
+        IReadOnlyDictionary<string, string> global = CurrentGroup()?.GlobalOptions
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+        try
+        {
+            string json = TaskOptions.CompileGlobal(config, global, out IReadOnlyList<string> warnings);
+            GlobalPreview = warnings.Count == 0
+                ? Pretty(json)
+                : Pretty(json) + Environment.NewLine + Environment.NewLine + "⚠ " + string.Join(Environment.NewLine + "⚠ ", warnings);
+        }
+        catch (JsonException ex)
+        {
+            GlobalPreview = $"编译失败：{ex.Message}";
         }
     }
 
