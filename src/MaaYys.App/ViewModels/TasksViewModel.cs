@@ -1,11 +1,30 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Windows.Input;
 using MaaYys.App.Services;
+using MaaYys.Engine;
 using MaaYys.Engine.Config;
 
 namespace MaaYys.App.ViewModels;
+
+/// <summary>可用任务目录项（「添加任务」下拉用）。</summary>
+public sealed class TaskCatalogItem
+{
+    public TaskCatalogItem(string name, string displayName, IReadOnlyList<string>? group)
+    {
+        Name = name;
+        DisplayName = displayName;
+        GroupText = group is { Count: > 0 } ? string.Join(" / ", group) : "未分组";
+    }
+
+    public string Name { get; }
+
+    public string DisplayName { get; }
+
+    public string GroupText { get; }
+}
 
 /// <summary>选项面板里的一个可选项（select 的 case / checkbox 的一格）。</summary>
 public sealed class ChoiceItemViewModel : ViewModelBase
@@ -160,61 +179,22 @@ public sealed class OptionRowViewModel : ViewModelBase
             : RawChoices.ToList().FindIndex(c => string.Equals(c.Name, name, StringComparison.Ordinal));
 }
 
-/// <summary>左侧任务列表项。</summary>
-public sealed class TaskOptionItemViewModel : ViewModelBase
-{
-    private readonly Action _onEnabledChanged;
-    private bool _isEnabled;
-
-    public TaskOptionItemViewModel(TaskConfig task, bool isEnabled, int optionCount, Action onEnabledChanged)
-    {
-        Task = task;
-        _isEnabled = isEnabled;
-        OptionCount = optionCount;
-        _onEnabledChanged = onEnabledChanged;
-    }
-
-    public TaskConfig Task { get; }
-
-    public string Label => Task.DisplayName;
-
-    public string Entry => Task.Entry;
-
-    public string GroupText => Task.Group is { Count: > 0 } ? string.Join(" / ", Task.Group) : "未分组";
-
-    public int OptionCount { get; }
-
-    public string OptionText => OptionCount == 0 ? "无参数" : $"{OptionCount} 项参数";
-
-    public bool IsEnabled
-    {
-        get => _isEnabled;
-        set
-        {
-            if (SetProperty(ref _isEnabled, value))
-            {
-                _onEnabledChanged();
-            }
-        }
-    }
-}
-
 /// <summary>
-/// 任务页（P3.4）：左边任务清单，右边**该任务的参数面板**，底部是编译出的 <c>pipeline_override</c> 预览。
+/// 任务页（P3.4 参数面板 + P5.1 任务队列）：
 /// <para>
-/// 编辑对象是<b>当前配置组</b>（与实例页同一份数据）：勾选任务 = 加入队列，改参数 = 写进
-/// <see cref="TaskSelection.Options"/>，两者都立即落盘。
+/// 左侧任务队列（有序、可同类多实例 / 重命名 / 拖拽排序 / 启用、运行态着色）；
+/// 右侧编辑选中队列项的参数；底部是编译出的 <c>pipeline_override</c> 预览（P5 投递任务时传它）。
 /// </para>
 /// <para>
-/// 参数面板完全由 <c>interface.json</c> 的 option 定义驱动（29 个任务、94 个选项、四种类型），
-/// 新增选项不用改界面代码。
+/// 参数面板完全由 <c>interface.json</c> 的 option 定义驱动，新增选项不用改界面代码。
+/// 编辑直接写回 <see cref="TaskSelection"/>（队列项持有其引用），变更后统一落盘。
 /// </para>
 /// </summary>
 public sealed class TasksViewModel : ViewModelBase, IDisposable
 {
     private readonly InstanceWorkspace? _workspace;
     private bool _loading;
-    private TaskOptionItemViewModel? _selectedTask;
+    private QueueItemViewModel? _selectedQueueItem;
 
     public TasksViewModel()
         : this(null)
@@ -225,8 +205,9 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     {
         _workspace = workspace;
 
-        ResetTaskCommand = new RelayCommand(_ => ResetTaskOptions(), _ => SelectedTask is not null && OptionRows.Count > 0);
-        ResetAllCommand = new RelayCommand(_ => ResetAllOptions(), _ => Tasks.Any(t => t.OptionCount > 0));
+        ResetTaskCommand = new RelayCommand(_ => ResetTaskOptions(), _ => SelectedQueueItem is not null && OptionRows.Count > 0);
+        ResetAllCommand = new RelayCommand(_ => ResetAllOptions(), _ => Queue.Any(q => q.Options.Count > 0));
+        AddTaskCommand = new RelayCommand(p => AddTaskToQueue((string)p!), _ => AvailableTasks.Any());
 
         if (workspace is not null && workspace.Resources.Config is not null)
         {
@@ -238,14 +219,15 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             _selectedConfiguration = workspace.Configurations.Current ?? ConfigurationNames.FirstOrDefault() ?? string.Empty;
         }
 
-        LoadTasks();
+        LoadCatalog();
+        LoadQueue();
     }
 
     public ObservableCollection<string> ConfigurationNames { get; } = [];
 
     private string _selectedConfiguration = string.Empty;
 
-    /// <summary>当前编辑的配置组（切换即重新加载勾选态与参数值）。</summary>
+    /// <summary>当前编辑的配置组（切换即重新加载队列与参数值）。</summary>
     public string SelectedConfiguration
     {
         get => _selectedConfiguration;
@@ -257,18 +239,25 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             }
 
             _workspace?.Configurations.SetCurrent(value);
-            LoadTasks();
+            LoadCatalog();
+            LoadQueue();
         }
     }
 
-    public ObservableCollection<TaskOptionItemViewModel> Tasks { get; } = [];
+    /// <summary>任务队列（顺序即执行顺序，可拖拽重排）。</summary>
+    public ObservableCollection<QueueItemViewModel> Queue { get; } = [];
 
-    public TaskOptionItemViewModel? SelectedTask
+    /// <summary>所有可加入队列的任务（「添加任务」来源）。</summary>
+    public ObservableCollection<TaskCatalogItem> AvailableTasks { get; } = [];
+
+    public ObservableCollection<OptionRowViewModel> OptionRows { get; } = [];
+
+    public QueueItemViewModel? SelectedQueueItem
     {
-        get => _selectedTask;
+        get => _selectedQueueItem;
         set
         {
-            if (!SetProperty(ref _selectedTask, value))
+            if (!SetProperty(ref _selectedQueueItem, value))
             {
                 return;
             }
@@ -280,23 +269,19 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public string TaskHeader => SelectedTask is null ? "选择一个任务" : SelectedTask.Label;
+    public string TaskHeader => SelectedQueueItem is null ? "选择一个队列任务" : SelectedQueueItem.DisplayName;
 
-    public string TaskHint => SelectedTask is null
-        ? "左侧点任务名即可编辑它的参数；勾选框决定它是否加入任务队列。"
-        : SelectedTask.OptionCount == 0
-            ? "该任务没有可配置参数。"
-            : $"{SelectedTask.OptionText} · 改动即时保存到配置组「{SelectedConfiguration}」";
+    public string TaskHint => SelectedQueueItem is null
+        ? "左侧为任务队列：可拖拽排序、添加同类实例、重命名、右键「从此处运行」。"
+        : $"{SelectedQueueItem.Options.Count} 项参数 · 改动即时保存到配置组「{SelectedConfiguration}」";
 
-    public int EnabledCount => Tasks.Count(t => t.IsEnabled);
+    public int EnabledCount => Queue.Count(q => q.IsEnabled);
 
-    public string TaskSummary => $"已勾选 {EnabledCount} / {Tasks.Count} 个任务";
-
-    public ObservableCollection<OptionRowViewModel> OptionRows { get; } = [];
+    public string TaskSummary => $"队列 {Queue.Count} 项 · 启用 {EnabledCount}";
 
     private string _preview = "{}";
 
-    /// <summary>当前任务编译后的 <c>pipeline_override</c>（P5 投递任务时传的就是它）。</summary>
+    /// <summary>当前选中实例编译后的 <c>pipeline_override</c>（P5 投递任务时使用）。</summary>
     public string Preview
     {
         get => _preview;
@@ -304,6 +289,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     }
 
     private string _message = string.Empty;
+
     public string Message
     {
         get => _message;
@@ -318,40 +304,56 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
     public ICommand ResetTaskCommand { get; }
     public ICommand ResetAllCommand { get; }
+    public ICommand AddTaskCommand { get; }
 
     // ---- 加载 ----
 
     private TaskConfiguration? CurrentGroup()
         => _workspace?.Configurations.Find(SelectedConfiguration) ?? _workspace?.Configurations.CurrentConfiguration;
 
-    private void LoadTasks()
+    private void LoadCatalog()
+    {
+        AvailableTasks.Clear();
+        InterfaceConfig? config = _workspace?.Resources.Config;
+        if (config is null)
+        {
+            return;
+        }
+
+        foreach (TaskConfig task in config.MergedTasks)
+        {
+            AvailableTasks.Add(new TaskCatalogItem(task.Name, task.DisplayName, task.Group));
+        }
+    }
+
+    private void LoadQueue()
     {
         _loading = true;
         try
         {
-            string? previous = SelectedTask?.Task.Name;
-            Tasks.Clear();
+            string? previous = SelectedQueueItem?.Id;
+            Queue.Clear();
             OptionRows.Clear();
 
-            InterfaceConfig? config = _workspace?.Resources.Config;
-            if (config is null)
+            TaskConfiguration? group = CurrentGroup();
+            if (group is null)
             {
                 Preview = "{}";
                 return;
             }
 
-            TaskConfiguration? group = CurrentGroup();
-            HashSet<string> enabled = group is null
-                ? []
-                : [.. group.Tasks.Where(t => t.Enabled).Select(t => t.Name)];
-
-            foreach (TaskConfig task in config.MergedTasks)
+            for (int i = 0; i < group.Tasks.Count; i++)
             {
-                int count = TaskOptions.Describe(config, task).Count;
-                Tasks.Add(new TaskOptionItemViewModel(task, enabled.Contains(task.Name), count, OnTaskEnabledChanged));
+                TaskSelection sel = group.Tasks[i];
+                int instances = group.Tasks.Count(s => s.Name == sel.Name);
+                var vm = new QueueItemViewModel(
+                    sel, instances,
+                    RemoveInstance, MoveUp, MoveDown, RunFromHere, RenameInstance, OnEnabledChanged);
+                vm.RefreshPosition(i, group.Tasks.Count);
+                Queue.Add(vm);
             }
 
-            SelectedTask = Tasks.FirstOrDefault(t => t.Task.Name == previous) ?? Tasks.FirstOrDefault();
+            SelectedQueueItem = Queue.FirstOrDefault(q => q.Id == previous) ?? Queue.FirstOrDefault();
         }
         finally
         {
@@ -361,31 +363,228 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(TaskSummary));
     }
 
-    private IReadOnlyDictionary<string, string> CurrentValues()
+    private void RefreshInstanceCounts(TaskConfiguration group)
+    {
+        foreach (QueueItemViewModel vm in Queue)
+        {
+            vm.InstanceCount = group.Tasks.Count(s => s.Name == vm.Name);
+        }
+    }
+
+    private void RefreshPositions()
+    {
+        for (int i = 0; i < Queue.Count; i++)
+        {
+            Queue[i].RefreshPosition(i, Queue.Count);
+        }
+    }
+
+    // ---- 队列操作 ----
+
+    /// <summary>把一个任务加入队列（支持同类多实例，自动生成实例 ID）。</summary>
+    private void AddTaskToQueue(string name)
     {
         TaskConfiguration? group = CurrentGroup();
-        string? taskName = SelectedTask?.Task.Name;
-        if (group is null || taskName is null)
+        if (group is null)
         {
-            return new Dictionary<string, string>();
+            return;
         }
 
-        return group.FindTask(taskName)?.Options ?? new Dictionary<string, string>();
+        TaskSelection sel = group.AddInstance(name);
+        int instances = group.Tasks.Count(s => s.Name == name);
+        var vm = new QueueItemViewModel(
+            sel, instances,
+            RemoveInstance, MoveUp, MoveDown, RunFromHere, RenameInstance, OnEnabledChanged);
+        vm.RefreshPosition(group.Tasks.Count - 1, group.Tasks.Count);
+        Queue.Add(vm);
+        RefreshInstanceCounts(group);
+        SaveGroup(group);
+        SelectedQueueItem = vm;
+        RaiseCommandStates();
     }
+
+    private void RemoveInstance(string id)
+    {
+        TaskConfiguration? group = CurrentGroup();
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (group is null || vm is null)
+        {
+            return;
+        }
+
+        group.RemoveById(id);
+        Queue.Remove(vm);
+        RefreshInstanceCounts(group);
+        RefreshPositions();
+        SaveGroup(group);
+        if (ReferenceEquals(SelectedQueueItem, vm))
+        {
+            SelectedQueueItem = Queue.FirstOrDefault();
+        }
+
+        RaiseCommandStates();
+    }
+
+    private void MoveUp(string id) => MoveInstance(id, -1);
+
+    private void MoveDown(string id) => MoveInstance(id, +1);
+
+    /// <summary>拖放排序：把指定实例移到目标索引（公共入口，供 UI 拖放调用）。</summary>
+    public void MoveInstanceTo(string id, int targetIndex)
+    {
+        TaskConfiguration? group = CurrentGroup();
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (group is null || vm is null)
+        {
+            return;
+        }
+
+        int current = Queue.IndexOf(vm);
+        int target = Math.Max(0, Math.Min(targetIndex, Queue.Count - 1));
+        if (target == current)
+        {
+            return;
+        }
+
+        group.MoveById(id, target);
+        Queue.Move(current, target);
+        RefreshPositions();
+        SaveGroup(group);
+        RaiseCommandStates();
+    }
+
+    private void MoveInstance(string id, int delta)
+    {
+        TaskConfiguration? group = CurrentGroup();
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (group is null || vm is null)
+        {
+            return;
+        }
+
+        int idx = Queue.IndexOf(vm);
+        int target = idx + delta;
+        if (target < 0 || target >= Queue.Count)
+        {
+            return;
+        }
+
+        group.MoveById(id, target);   // 配置里的顺序
+        Queue.Move(idx, target);     // UI 集合同步
+        RefreshPositions();
+        SaveGroup(group);
+        RaiseCommandStates();
+    }
+
+    private void RenameInstance(string id, string alias)
+    {
+        TaskConfiguration? group = CurrentGroup();
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (group is null || vm is null)
+        {
+            return;
+        }
+
+        vm.Alias = alias;   // setter 写回 sel.Alias 并通知 DisplayName
+        SaveGroup(group);
+    }
+
+    /// <summary>右键「从此处运行」：P5.3 执行引擎接入点，当前仅置提示。</summary>
+    private void RunFromHere(string id)
+    {
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (vm is null)
+        {
+            return;
+        }
+
+        Message = $"已请求从「{vm.DisplayName}」开始运行（执行引擎接入见 P5.3）";
+    }
+
+    /// <summary>勾选状态变化：<see cref="TaskSelection.Enabled"/> 已由 QueueItem 直接写回，这里只落盘。</summary>
+    private void OnEnabledChanged(bool _)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        TaskConfiguration? group = CurrentGroup();
+        if (group is null)
+        {
+            return;
+        }
+
+        SaveGroup(group);
+        Message = $"{SelectedConfiguration}：{EnabledCount}/{Queue.Count} 个任务已启用";
+        OnPropertyChanged(nameof(TaskSummary));
+        OnPropertyChanged(nameof(TaskHint));
+    }
+
+    /// <summary>执行引擎在运行时调用：设置某队列项的运行态（驱动 UI 着色）。</summary>
+    public void SetStatus(string id, TaskRunStatus status)
+    {
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
+        if (vm is not null)
+        {
+            vm.Status = status;
+        }
+    }
+
+    /// <summary>
+    /// 以代码方式给某个任务设置一个选项值（与界面操作走同一条保存路径）。
+    /// 按任务入口名定位第一个实例，供自动化验证与 P5 的「按配置批量预置」使用。
+    /// </summary>
+    public bool ApplyOption(string taskName, string optionKey, string? value)
+    {
+        TaskConfiguration? group = CurrentGroup();
+        if (group is null)
+        {
+            return false;
+        }
+
+        TaskSelection? entry = group.Tasks.FirstOrDefault(t => string.Equals(t.Name, taskName, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            return false;
+        }
+
+        entry.SetOption(optionKey, value);
+        SaveGroup(group);
+        if (SelectedQueueItem is not null && string.Equals(SelectedQueueItem.Name, taskName, StringComparison.Ordinal))
+        {
+            RebuildOptionRows();
+        }
+
+        OnPropertyChanged(nameof(TaskSummary));
+        return true;
+    }
+
+    // ---- 参数面板 ----
+
+    private IReadOnlyDictionary<string, string> CurrentValues()
+        => SelectedQueueItem?.Options ?? new Dictionary<string, string>();
 
     private void RebuildOptionRows()
     {
         OptionRows.Clear();
 
         InterfaceConfig? config = _workspace?.Resources.Config;
-        TaskConfig? task = SelectedTask?.Task;
-        if (config is null || task is null)
+        QueueItemViewModel? sel = SelectedQueueItem;
+        if (config is null || sel is null)
         {
             Preview = "{}";
             return;
         }
 
-        IReadOnlyDictionary<string, string> values = CurrentValues();
+        TaskConfig? task = config.MergedTasks.FirstOrDefault(t => string.Equals(t.Name, sel.Name, StringComparison.Ordinal));
+        if (task is null)
+        {
+            Preview = "{}";
+            return;
+        }
+
+        IReadOnlyDictionary<string, string> values = sel.Options;
         IReadOnlyList<TaskOptionDefinition> rows = TaskOptions.Describe(config, task, values);
 
         foreach (TaskOptionDefinition row in rows)
@@ -422,84 +621,8 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         RaiseCommandStates();
     }
 
-    // ---- 改动 ----
-
-    /// <summary>
-    /// 以代码方式给某个任务设置一个选项值（与界面操作走同一条保存路径）。
-    /// 供自动化验证与 P5 的「按配置批量预置」使用。
-    /// </summary>
-    public bool ApplyOption(string taskName, string optionKey, string? value)
-    {
-        TaskOptionItemViewModel? item = Tasks.FirstOrDefault(t => string.Equals(t.Task.Name, taskName, StringComparison.Ordinal));
-        if (item is null)
-        {
-            return false;
-        }
-
-        SelectedTask = item;
-
-        TaskConfiguration? group = CurrentGroup();
-        if (group is null)
-        {
-            return false;
-        }
-
-        group.EnsureTask(taskName, enabled: true).SetOption(optionKey, value);
-        SaveGroup(group);
-        RebuildOptionRows();
-        OnPropertyChanged(nameof(TaskSummary));
-        return true;
-    }
-
-    /// <summary>勾选任务 = 加入/移出配置组的任务队列。</summary>
-    private void OnTaskEnabledChanged()
-    {
-        if (_loading)
-        {
-            return;
-        }
-
-        TaskConfiguration? group = CurrentGroup();
-        if (group is null)
-        {
-            return;
-        }
-
-        foreach (TaskOptionItemViewModel item in Tasks)
-        {
-            if (item.IsEnabled)
-            {
-                group.EnsureTask(item.Task.Name, enabled: true);
-            }
-            else
-            {
-                TaskSelection? entry = group.FindTask(item.Task.Name);
-                if (entry is not null)
-                {
-                    entry.Enabled = false;
-                }
-            }
-        }
-
-        // 未启用且没有任何参数取值的条目没有保留价值
-        group.Tasks.RemoveAll(t => !t.Enabled && t.Options.Count == 0);
-        SaveGroup(group);
-        Message = $"{SelectedConfiguration}：{group.EnabledCount}/{Tasks.Count} 个任务已勾选";
-        OnPropertyChanged(nameof(TaskSummary));
-        OnPropertyChanged(nameof(TaskHint));
-    }
-
     private TaskSelection? EnsureEntry()
-    {
-        TaskConfiguration? group = CurrentGroup();
-        string? taskName = SelectedTask?.Task.Name;
-        if (group is null || taskName is null)
-        {
-            return null;
-        }
-
-        return group.EnsureTask(taskName, enabled: true);
-    }
+        => SelectedQueueItem?.Selection;
 
     private void OnSingleChoiceChanged(string optionKey, string? value)
     {
@@ -569,8 +692,8 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     private void ResetTaskOptions()
     {
         TaskConfiguration? group = CurrentGroup();
-        string? taskName = SelectedTask?.Task.Name;
-        TaskSelection? entry = taskName is null ? null : group?.FindTask(taskName);
+        string? id = SelectedQueueItem?.Id;
+        TaskSelection? entry = id is null ? null : group?.FindById(id);
         if (group is null || entry is null)
         {
             return;
@@ -579,7 +702,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         entry.Options.Clear();
         SaveGroup(group);
         RebuildOptionRows();
-        Message = $"已把「{taskName}」的参数恢复为默认值";
+        Message = $"已把「{entry.Name}」的参数恢复为默认值";
     }
 
     private void ResetAllOptions()
@@ -630,8 +753,15 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     private void RefreshPreview()
     {
         InterfaceConfig? config = _workspace?.Resources.Config;
-        TaskConfig? task = SelectedTask?.Task;
-        if (config is null || task is null)
+        QueueItemViewModel? sel = SelectedQueueItem;
+        if (config is null || sel is null)
+        {
+            Preview = "{}";
+            return;
+        }
+
+        TaskConfig? task = config.MergedTasks.FirstOrDefault(t => string.Equals(t.Name, sel.Name, StringComparison.Ordinal));
+        if (task is null)
         {
             Preview = "{}";
             return;
@@ -639,7 +769,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
         try
         {
-            string json = TaskOptions.Compile(config, task, CurrentValues(), out IReadOnlyList<string> warnings);
+            string json = TaskOptions.Compile(config, task, sel.Options, out IReadOnlyList<string> warnings);
             Preview = warnings.Count == 0
                 ? Pretty(json)
                 : Pretty(json) + Environment.NewLine + Environment.NewLine + "⚠ " + string.Join(Environment.NewLine + "⚠ ", warnings);
@@ -672,6 +802,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     {
         (ResetTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (ResetAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (AddTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     public void Dispose()

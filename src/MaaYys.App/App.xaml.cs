@@ -90,9 +90,9 @@ public partial class App : Application
                 // 可选：任务页自动选中某个任务（配合 --screenshot 校验参数面板）
                 if (ReadOption(e.Args, "--task") is { } taskName && viewModel?.CurrentPage is TasksViewModel tasksPage)
                 {
-                    tasksPage.SelectedTask = tasksPage.Tasks.FirstOrDefault(
-                        t => string.Equals(t.Label, taskName, StringComparison.Ordinal)
-                             || string.Equals(t.Task.Name, taskName, StringComparison.Ordinal));
+                    tasksPage.SelectedQueueItem = tasksPage.Queue.FirstOrDefault(
+                        q => string.Equals(q.DisplayName, taskName, StringComparison.Ordinal)
+                             || string.Equals(q.Name, taskName, StringComparison.Ordinal));
                     await Task.Delay(400);
                 }
 

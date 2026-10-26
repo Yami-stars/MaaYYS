@@ -49,15 +49,134 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- 重命名：编辑态切换 TextBox / TextBlock -->
+        <Style x:Key="DisplayNameTextStyle" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DisplayNameBoxStyle" TargetType="TextBox">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="1,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 队列项模板 -->
+        <DataTemplate x:Key="QueueItemTemplate">
+            <Grid Margin="2,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 状态色条 -->
+                <Border Grid.Column="0" x:Name="StatusBar" Width="4" CornerRadius="2"
+                        Background="Transparent" VerticalAlignment="Stretch" />
+
+                <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                          VerticalAlignment="Top" Margin="0,2,0,0" />
+
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="{Binding DisplayName}" FontSize="12"
+                               Style="{StaticResource DisplayNameTextStyle}">
+                        <TextBlock.InputBindings>
+                            <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding BeginEditCommand}" />
+                        </TextBlock.InputBindings>
+                    </TextBlock>
+
+                    <TextBox Grid.Row="0" Text="{Binding Alias, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource DisplayNameBoxStyle}"
+                             LostFocus="AliasBox_LostFocus" KeyDown="AliasBox_KeyDown" />
+
+                    <TextBlock Grid.Row="1" FontSize="10" Foreground="{DynamicResource ForegroundSecondaryBrush}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} · 实例 {1}">
+                                <Binding Path="Name" />
+                                <Binding Path="InstanceCount" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </Grid>
+
+                <TextBlock Grid.Column="3" FontSize="10" Margin="6,0,0,0"
+                           Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                           Text="{Binding InstanceCount, StringFormat='×{0}'}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding InstanceCount}" Value="1">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Running">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#2E7D32" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Pending">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#F9A825" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Done">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#1565C0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Skipped">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#9E9E9E" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Failed">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#C62828" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Stopped">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#EF6C00" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- 队列项容器：右键菜单 -->
+        <Style x:Key="QueueItemContainerStyle" TargetType="ListBoxItem" BasedOn="{StaticResource PlainListItemStyle}">
+            <Setter Property="ContextMenu">
+                <Setter.Value>
+                    <ContextMenu>
+                        <MenuItem Header="从此处运行" Command="{Binding RunFromHereCommand}" />
+                        <MenuItem Header="重命名" Command="{Binding BeginEditCommand}" />
+                        <MenuItem Header="上移" Command="{Binding MoveUpCommand}" />
+                        <MenuItem Header="下移" Command="{Binding MoveDownCommand}" />
+                        <Separator />
+                        <MenuItem Header="删除" Command="{Binding RemoveCommand}" />
+                    </ContextMenu>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="310" />
+            <ColumnDefinition Width="320" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- 左：配置组 + 任务清单 -->
+        <!-- 左：任务队列 -->
         <Border Grid.Column="0" Margin="0,0,12,0" Padding="12" CornerRadius="8"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <Grid>
@@ -70,49 +189,47 @@
                 </Grid.RowDefinitions>
 
                 <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="任务" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Text="任务队列" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding TaskSummary}" FontSize="11" HorizontalAlignment="Right"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource ForegroundSecondaryBrush}" />
                 </Grid>
 
-                <StackPanel Grid.Row="1" Margin="0,0,0,8">
-                    <TextBlock Text="配置组（任务与参数归属）" Style="{StaticResource FieldLabel}" />
-                    <ComboBox Height="28" ItemsSource="{Binding ConfigurationNames}"
-                              SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay}" />
-                </StackPanel>
+                <Grid Grid.Row="1" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="配置组" Style="{StaticResource FieldLabel}" />
+                        <ComboBox Height="28" ItemsSource="{Binding ConfigurationNames}"
+                                  SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="添加任务" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="AddTaskBox" Height="28" ItemsSource="{Binding AvailableTasks}"
+                                  DisplayMemberPath="DisplayName" SelectedValuePath="Name"
+                                  ToolTip="把任务加入队列（可加多个同类实例）"
+                                  SelectionChanged="AddTaskBox_SelectionChanged" />
+                    </StackPanel>
+                </Grid>
 
                 <TextBlock Grid.Row="2" Style="{StaticResource HintText}" Margin="0,0,0,6"
-                           Text="勾选框 = 是否加入任务队列；点任务名编辑参数。" />
+                           Text="拖拽排序；双击或右键「重命名」改名；右键可「从此处运行」。" />
 
-                <ListBox Grid.Row="3" ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
-                         ItemContainerStyle="{StaticResource PlainListItemStyle}"
+                <ListBox Grid.Row="3" x:Name="QueueList"
+                         ItemsSource="{Binding Queue}"
+                         SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
+                         ItemTemplate="{StaticResource QueueItemTemplate}"
+                         ItemContainerStyle="{StaticResource QueueItemContainerStyle}"
+                         AllowDrop="True"
+                         PreviewMouseLeftButtonDown="QueueList_PreviewMouseLeftButtonDown"
+                         MouseMove="QueueList_MouseMove"
+                         DragOver="QueueList_DragOver"
+                         Drop="QueueList_Drop"
                          Background="Transparent" BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox Grid.Column="0" VerticalAlignment="Top" Margin="0,2,0,0"
-                                          IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Text="{Binding Label}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                    <WrapPanel>
-                                        <TextBlock Text="{Binding OptionText}" FontSize="10"
-                                                   Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                        <TextBlock Text=" · " FontSize="10"
-                                                   Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                        <TextBlock Text="{Binding GroupText}" FontSize="10"
-                                                   Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                    </WrapPanel>
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
 
                 <TextBlock Grid.Row="4" Style="{StaticResource HintText}" Margin="0,6,0,0"
                            Text="{Binding CatalogHint}" />
@@ -176,7 +293,6 @@
                                                           ItemsSource="{Binding Choices}"
                                                           DisplayMemberPath="Label"
                                                           SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" />
-                                                <!-- 没有 default_case 的选项默认是无覆盖状态，给个占位提示，别让用户以为界面坏了 -->
                                                 <TextBlock Text="（未选择，按默认处理）" FontSize="11" Margin="9,0,0,0"
                                                            VerticalAlignment="Center" IsHitTestVisible="False"
                                                            Foreground="{DynamicResource ForegroundSecondaryBrush}">
