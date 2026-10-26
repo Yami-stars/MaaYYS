@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MaaYys.App</RootNamespace>
+    <AssemblyName>MaaYys</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MaaYys.Engine\MaaYys.Engine.csproj" />
+  </ItemGroup>
+
+  <!--
+    P2.5 资源部署：仓库根 resource\ 目录（interface.json + resource_pack + tasks/assets/agent）
+    在构建后增量同步到 exe 同目录，保证 dotnet clean / 重新构建后资源不会丢。
+
+    InstanceWorkspace.LocateInterfaceJson() 的第一优先级就是「程序目录下的 interface.json」，
+    因此这一步做完，程序无需任何环境变量即可自动识别资源集。
+    未放 resource\ 目录时（例如 CI 只编译）整个 Target 自动跳过，不影响构建。
+  -->
+  <PropertyGroup>
+    <MaaResourceRoot>$(MSBuildProjectDirectory)\..\..\resource</MaaResourceRoot>
+  </PropertyGroup>
+
+  <Target Name="SyncMaaResourceToOutput"
+          AfterTargets="Build"
+          Condition="Exists('$(MaaResourceRoot)\interface.json')">
+    <ItemGroup>
+      <_MaaResourceFile Include="$(MaaResourceRoot)\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_MaaResourceFile)"
+          DestinationFiles="@(_MaaResourceFile->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+    <Message Importance="high"
+             Text="MaaYys 资源已同步到输出目录：@(_MaaResourceFile->Count()) 个文件 → $(OutDir)" />
+  </Target>
+
+  <Target Name="SyncMaaResourceToPublish"
+          AfterTargets="Publish"
+          Condition="Exists('$(MaaResourceRoot)\interface.json')">
+    <ItemGroup>
+      <_MaaResourcePublishFile Include="$(MaaResourceRoot)\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_MaaResourcePublishFile)"
+          DestinationFiles="@(_MaaResourcePublishFile->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+</Project>

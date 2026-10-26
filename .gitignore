@@ -14,6 +14,11 @@ agent/agent-action-hit.txt
 # ---- MaaFramework 运行库（从 D:\YYS\MaaYYs-...\maafw 复制，不入库）----
 third_party/maafw/
 
+# ---- 阴阳师资源（从 D:\YYS\MaaYYs-...-MXU 复制，约 99MB，不入库）----
+# 重建方式：把 interface.json / resource_pack（可排除 test）/ tasks / assets / agent
+# 复制到本目录（仓库根 resource\），构建时 MaaYys.App.csproj 会自动同步到 exe 同目录。
+resource/
+
 # ---- 工具链（Go SDK 与 GOPATH，不入库）----
 environment/
 
@@ -28,3 +33,7 @@ debug/
 # ---- OS ----
 Thumbs.db
 desktop.ini
+
+# 运行期配置（便携配置随程序目录生成，不入库）
+src/**/config/
+config/

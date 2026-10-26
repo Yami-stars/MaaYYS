@@ -1,12 +1,12 @@
-// MaaYss agent 子进程：MaaAgentServer 宿主。
+// MaaYys agent 子进程：MaaAgentServer 宿主。
 //
-// P1.5 用途：注册一个测试用 custom_action 与 custom_recognition，
-// 供 C# 侧（MaaAgentClient）连接并调用，验证 agent 链路闭环。
+// P4 Agent 功能移植：注册阴阳师自动脚本所需的 17 个自定义动作 + 2 个自定义识别，
+// 供 C# 侧（MaaAgentClient）连接并调用，完成 agent 链路闭环。
 //
 // 用法：
 //   agent.exe <identifier> [--libdir <MaaFramework DLL 目录>]
 //
-// identifier 由 MaaAgentClient 生成（纯数字 1-65535 表示 TCP 端口），
+// identifier 由 MaaAgentClient 生成（TCP 模式下为端口号字符串），
 // 由父进程（GUI / 探针）传入。
 package main
 
@@ -16,13 +16,34 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/MaaXYZ/maa-framework-go/v4"
+	maa "github.com/MaaXYZ/maa-framework-go/v4"
 )
 
+// 自定义动作名（必须与 resource/ 下 pipeline 的 custom_action 引用完全一致）。
 const (
-	// 探针侧的 pipeline 通过这两个名字引用 agent 提供的能力。
-	probeActionName      = "MaaYssProbeAction"
-	probeRecognitionName = "MaaYssProbeRecognition"
+	nameRandomWait            = "RandomWait"
+	nameSwitchSoul            = "SwitchSoul"
+	nameClearHitCount         = "ClearHitCount"
+	nameRepeatChallengeNTimes = "RepeatChallengeNTimes"
+	nameBonusToggleAction     = "BonusToggleAction"
+	nameTimeCheck             = "TimeCheck"
+	nameRandomSwipe           = "RandomSwipe"
+	nameReStartGame           = "ReStartGame"
+	nameHumanTouch            = "HumanTouch"
+	nameChallengeDungeonBoss  = "ChallengeDungeonBoss"
+	nameBattleTeam            = "BattleTeam"
+	nameRandomTouch           = "RandomTouch"
+	nameRandomTask            = "RandomTask"
+	nameQuestionMatcher       = "QuestionMatcher"
+	nameGuess                 = "Guess"
+	nameAutoFoster            = "AutoFoster"
+	nameAutoBattle            = "AutoBattle"
+)
+
+// 自定义识别名（必须与 pipeline 的 custom_recognition 引用完全一致）。
+const (
+	nameCoBattleTarget = "CoBattleTargetRecognition"
+	nameTaskCounter    = "TaskCounterRecognition"
 )
 
 func main() {
@@ -58,14 +79,52 @@ func run() (err error) {
 	// 即使注册或启动失败也要关闭 socket。
 	defer maa.AgentServerShutDown()
 
-	if err := maa.AgentServerRegisterCustomAction(probeActionName, maa.CustomActionFunc(runProbeAction)); err != nil {
-		return fmt.Errorf("register custom action %s: %w", probeActionName, err)
+	// ── 注册 17 个自定义动作 ──
+	type actionReg struct {
+		name string
+		fn   maa.CustomActionFunc
 	}
-	if err := maa.AgentServerRegisterCustomRecognition(probeRecognitionName, maa.CustomRecognitionFunc(runProbeRecognition)); err != nil {
-		return fmt.Errorf("register custom recognition %s: %w", probeRecognitionName, err)
+	actions := []actionReg{
+		{nameRandomWait, actRandomWait},
+		{nameSwitchSoul, actSwitchSoul},
+		{nameClearHitCount, actClearHitCount},
+		{nameRepeatChallengeNTimes, actRepeatChallengeNTimes},
+		{nameBonusToggleAction, actBonusToggleAction},
+		{nameTimeCheck, actTimeCheck},
+		{nameRandomSwipe, actRandomSwipe},
+		{nameReStartGame, actReStartGame},
+		{nameHumanTouch, actHumanTouch},
+		{nameChallengeDungeonBoss, actChallengeDungeonBoss},
+		{nameBattleTeam, actBattleTeam},
+		{nameRandomTouch, actRandomTouch},
+		{nameRandomTask, actRandomTask},
+		{nameQuestionMatcher, actQuestionMatcher},
+		{nameGuess, actGuess},
+		{nameAutoFoster, actAutoFoster},
+		{nameAutoBattle, actAutoBattle},
+	}
+	for _, a := range actions {
+		if regErr := maa.AgentServerRegisterCustomAction(a.name, a.fn); regErr != nil {
+			return fmt.Errorf("register custom action %s: %w", a.name, regErr)
+		}
 	}
 
-	fmt.Printf("[agent] registered: action=%s recognition=%s\n", probeActionName, probeRecognitionName)
+	// ── 注册 2 个自定义识别 ──
+	type recoReg struct {
+		name string
+		fn   maa.CustomRecognitionFunc
+	}
+	recos := []recoReg{
+		{nameCoBattleTarget, recCoBattleTarget},
+		{nameTaskCounter, recTaskCounter},
+	}
+	for _, r := range recos {
+		if regErr := maa.AgentServerRegisterCustomRecognition(r.name, r.fn); regErr != nil {
+			return fmt.Errorf("register custom recognition %s: %w", r.name, regErr)
+		}
+	}
+
+	fmt.Printf("[agent] registered: %d actions + %d recognitions\n", len(actions), len(recos))
 
 	if err := maa.AgentServerStartUp(identifier); err != nil {
 		return fmt.Errorf("start agent server: %w", err)
@@ -77,45 +136,6 @@ func run() (err error) {
 	maa.AgentServerJoin()
 	fmt.Println("[agent] server stopped")
 	return nil
-}
-
-// runProbeAction 是 P1.5 的被调方：打印收到的参数并返回成功。
-func runProbeAction(ctx *maa.Context, arg *maa.CustomActionArg) bool {
-	fmt.Printf("[agent] ACTION CALLED name=%s task=%s param=%s box=%v\n",
-		arg.CustomActionName, arg.CurrentTaskName, arg.CustomActionParam, arg.Box)
-
-	// 输出一份可被父进程校验的标记文件（工作目录下的 agent-action-hit.txt）。
-	if wd, err := os.Getwd(); err == nil {
-		hitPath := filepath.Join(wd, "agent-action-hit.txt")
-		content := fmt.Sprintf("action=%s\ntask=%s\nparam=%s\n",
-			arg.CustomActionName, arg.CurrentTaskName, arg.CustomActionParam)
-		_ = os.WriteFile(hitPath, []byte(content), 0o644)
-	}
-
-	return true
-}
-
-// runProbeRecognition 是 P1.5 的被调方：返回一个固定框，验证识别链路也通。
-func runProbeRecognition(ctx *maa.Context, arg *maa.CustomRecognitionArg) (*maa.CustomRecognitionResult, bool) {
-	fmt.Printf("[agent] RECOGNITION CALLED name=%s task=%s param=%s roi=%v img=%v\n",
-		arg.CustomRecognitionName, arg.CurrentTaskName, arg.CustomRecognitionParam, arg.Roi,
-		arg.Img != nil)
-
-	// 返回 ROI 起点的小区域，detail 供日志校验（Rect 为 [4]int：x, y, w, h）。
-	box := arg.Roi
-	w, h := box.Width(), box.Height()
-	if w > 10 {
-		w = 10
-	}
-	if h > 10 {
-		h = 10
-	}
-	box = maa.Rect{box.X(), box.Y(), w, h}
-
-	return &maa.CustomRecognitionResult{
-		Box:    box,
-		Detail: `{"probe":"MaaYssProbeRecognition","ok":true}`,
-	}, true
 }
 
 func parseArgs(args []string) (identifier string, libDir string, err error) {

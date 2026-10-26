@@ -1,0 +1,37 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 暗色主题（对标 MAA DarkMode 观感）：键与 Theme.Light.xaml 完全对齐 -->
+    <Color x:Key="WindowBackgroundColor">#1B1B1F</Color>
+    <Color x:Key="PanelBackgroundColor">#25252B</Color>
+    <Color x:Key="NavBackgroundColor">#202027</Color>
+    <Color x:Key="NavHoverColor">#2E2E36</Color>
+    <Color x:Key="NavSelectedColor">#33465C</Color>
+    <Color x:Key="BorderColor">#3A3A44</Color>
+    <Color x:Key="ForegroundPrimaryColor">#ECECEC</Color>
+    <Color x:Key="ForegroundSecondaryColor">#9C9CAC</Color>
+    <Color x:Key="AccentColor">#4CA6FF</Color>
+    <Color x:Key="AccentForegroundColor">#101014</Color>
+
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#1B1B1F" />
+    <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#25252B" />
+    <SolidColorBrush x:Key="NavBackgroundBrush" Color="#202027" />
+    <SolidColorBrush x:Key="NavHoverBrush" Color="#2E2E36" />
+    <SolidColorBrush x:Key="NavSelectedBrush" Color="#33465C" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#3A3A44" />
+    <SolidColorBrush x:Key="ForegroundPrimaryBrush" Color="#ECECEC" />
+    <SolidColorBrush x:Key="ForegroundSecondaryBrush" Color="#9C9CAC" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#4CA6FF" />
+    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#101014" />
+
+    <!-- 禁用态反馈：WPF 默认模板在显式设置 Background 后，禁用按钮外观几乎不变，
+         用户无法判断"按钮为什么点不动"（实例页的保存/连接按钮都踩过）。 -->
+    <Style TargetType="Button">
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+</ResourceDictionary>

@@ -1,4 +1,4 @@
-module maayss/agent
+module maayys/agent
 
 go 1.25.0
 
