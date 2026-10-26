@@ -134,6 +134,33 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 | 3.5 | 渠道服分层重构 | ✅ 完成（渠道层只写差异；修华为/应用宝不跳开场动画、vivo 关不掉游戏；`StartApp/StopApp` 绑定 + `probe channel`） |
 | 3.6 | interface.json 编写 | ✅ 完成（PI schema 校验 0 错误；官方 MaaPiCli 全流程读通、与 MXU 结构 0 差异；Win32 参数可配置化） |
 
+## P4 进度（**4/4 全部完成** — M3.5 Agent 能力就绪里程碑达成）
+
+详见 [`docs/P4-agent功能移植.md`](docs/P4-agent功能移植.md)、[`docs/MaaYys-开发流程表.md`](docs/MaaYys-开发流程表.md) §15。
+
+| # | 任务 | 状态 |
+|---|---|---|
+| 4.1 | agent 框架搭建 | ✅ 完成（`agent/` Go 工程，maa-framework-go **v4**；`MaaAgentSession` 封装 拉起→TCP 握手→BindResource→退出回收，接入 `MaaYysEngine.ConnectAsync`，best-effort 降级） |
+| 4.2 | 核心动作移植（8） | ✅ 完成（RandomWait / SwitchSoul / ClearHitCount / RepeatChallengeNTimes / BonusToggleAction / TimeCheck / RandomSwipe / ReStartGame 全部注册；`RandomWait` 经 pipeline 跑通 Succeeded） |
+| 4.3 | 高级动作移植（9） | ✅ 完成（HumanTouch / ChallengeDungeonBoss / BattleTeam / RandomTouch / RandomTask / QuestionMatcher / Guess / AutoFoster / AutoBattle 全部注册；游戏 UI 类动作标注「待真机校准」） |
+| 4.4 | 自定义识别移植（2） | ✅ 完成（`TaskCounterRecognition` 调用计数近似、`CoBattleTargetRecognition` 组队目标识别，均注册可用） |
+
+**验证**：`probe agent` 连接成功、19 能力清单齐全；173/173 测试（含 3 个 agent 集成测试）、0 警告 0 错误。
+
+**遗留**：MXU 的 `agent/` 仅含 `agent.exe` 无源码，游戏交互类动作坐标/流程按 param schema 重建，需真机微调。
+
+## P5 进度（**2/5**）
+
+详见 [`docs/MaaYys-开发流程表.md`](docs/MaaYys-开发流程表.md) §6.2。
+
+| # | 任务 | 状态 |
+|---|---|---|
+| 5.1 | 任务队列系统 | ✅ 完成（多实例唯一 Id / 拖拽重排 / 别名 / 启用禁用 / 运行态色条 / 右键「从此处运行」；`TaskConfigurationTests` 8 例） |
+| 5.2 | 选项系统 | ✅ 完成（全局级选项 MXU `setting` 扩展；`Compile` 全局层合并 + `CompileGlobal`；任务页「任务参数 / 全局选项」双页；190/190 测试） |
+| 5.3 | 任务执行引擎 | ⬜ 待开始（启动/停止/暂停、StallTimeout、重试、时长上限；`RunFromHere` 接线） |
+| 5.4 | 定时任务 | ⬜ 待开始 |
+| 5.5 | 日志系统 | ⬜ 待开始 |
+
 ### 缓存清理与资源整理（2026-10-26）
 
 详见 [`docs/P6.2-缓存清理与资源整理.md`](docs/P6.2-缓存清理与资源整理.md)。
