@@ -8,9 +8,21 @@ namespace MaaYys.App.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
+    /// <summary>「日志」页在导航里的下标（主界面「完整日志」按钮跳转用）。</summary>
+    private const int LogsPageIndex = 3;
+
     private readonly InstanceWorkspace _workspace;
 
     public ObservableCollection<NavigationItem> NavigationItems { get; } = new();
+
+    /// <summary>
+    /// 共享任务页（P6.1）：顶部运行控制、主界面任务链、任务页三处共用一个实例，
+    /// 否则在工作台里加的队列项任务页看不到。
+    /// </summary>
+    public TasksViewModel Tasks { get; }
+
+    /// <summary>主界面（左侧任务链 + 右侧连接/截图/日志三面板）。</summary>
+    public WorkbenchViewModel Workbench { get; }
 
     private NavigationItem? _selectedItem;
     public NavigationItem? SelectedItem
@@ -78,8 +90,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _workspace.PropertyChanged += OnWorkspacePropertyChanged;
         _workspace.Instances.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Instances));
 
-        NavigationItems.Add(new NavigationItem { Name = "首页", Glyph = "⌂", PageFactory = () => new HomeViewModel() });
-        NavigationItems.Add(new NavigationItem { Name = "任务", Glyph = "≡", PageFactory = () => new TasksViewModel(_workspace) });
+        // P6.1：任务页与主界面共用同一个 VM（顶部运行控制也绑它）
+        Tasks = new TasksViewModel(_workspace);
+        Workbench = new WorkbenchViewModel(_workspace, Tasks, () => SelectPage(LogsPageIndex));
+
+        NavigationItems.Add(new NavigationItem { Name = "主界面", Glyph = "▣", PageFactory = () => Workbench });
+        NavigationItems.Add(new NavigationItem { Name = "任务", Glyph = "≡", PageFactory = () => Tasks });
         NavigationItems.Add(new NavigationItem { Name = "定时", Glyph = "⏱", PageFactory = () => new TimersViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "日志", Glyph = "☰", PageFactory = () => new LogsViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionViewModel() });
@@ -159,6 +175,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _workspace.CurrentChanged -= OnWorkspaceCurrentChanged;
         _workspace.PropertyChanged -= OnWorkspacePropertyChanged;
+
+        // 主界面与任务页是「常驻」VM（导航没打开过也要停定时器 / 退订），先各自释放
+        Workbench.Dispose();
+        Tasks.Dispose();
 
         foreach (NavigationItem item in NavigationItems)
         {

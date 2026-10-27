@@ -1,0 +1,225 @@
+<UserControl x:Class="MaaYys.App.Views.Controls.TaskQueueView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <!--
+        任务链（P6.1 从任务页抽出）：任务页左栏与主界面左栏共用同一份实现。
+        DataContext 必须是 TasksViewModel —— 拖拽排序 / 重命名 / 右键菜单都落在它身上。
+    -->
+    <UserControl.Resources>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
+        </Style>
+
+        <Style x:Key="PlainListItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" CornerRadius="5" Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavSelectedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 重命名：编辑态切换 TextBox / TextBlock -->
+        <Style x:Key="DisplayNameTextStyle" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DisplayNameBoxStyle" TargetType="TextBox">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="1,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 队列项模板 -->
+        <DataTemplate x:Key="QueueItemTemplate">
+            <Grid Margin="2,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 状态色条 -->
+                <Border Grid.Column="0" x:Name="StatusBar" Width="4" CornerRadius="2"
+                        Background="Transparent" VerticalAlignment="Stretch" />
+
+                <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                          VerticalAlignment="Top" Margin="0,2,0,0" />
+
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="{Binding DisplayName}" FontSize="12"
+                               Style="{StaticResource DisplayNameTextStyle}">
+                        <TextBlock.InputBindings>
+                            <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding BeginEditCommand}" />
+                        </TextBlock.InputBindings>
+                    </TextBlock>
+
+                    <TextBox Grid.Row="0" Text="{Binding Alias, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource DisplayNameBoxStyle}"
+                             LostFocus="AliasBox_LostFocus" KeyDown="AliasBox_KeyDown" />
+
+                    <TextBlock Grid.Row="1" FontSize="10" Foreground="{DynamicResource ForegroundSecondaryBrush}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} · 实例 {1}">
+                                <Binding Path="Name" />
+                                <Binding Path="InstanceCount" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </Grid>
+
+                <TextBlock Grid.Column="3" FontSize="10" Margin="6,0,0,0"
+                           Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                           Text="{Binding InstanceCount, StringFormat='×{0}'}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding InstanceCount}" Value="1">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Running">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#2E7D32" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Pending">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#F9A825" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Done">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#1565C0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Skipped">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#9E9E9E" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Failed">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#C62828" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Stopped">
+                    <Setter TargetName="StatusBar" Property="Background" Value="#EF6C00" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- 队列项容器：右键菜单 -->
+        <Style x:Key="QueueItemContainerStyle" TargetType="ListBoxItem" BasedOn="{StaticResource PlainListItemStyle}">
+            <Setter Property="ContextMenu">
+                <Setter.Value>
+                    <ContextMenu>
+                        <MenuItem Header="从此处运行" Command="{Binding RunFromHereCommand}" />
+                        <MenuItem Header="重命名" Command="{Binding BeginEditCommand}" />
+                        <MenuItem Header="上移" Command="{Binding MoveUpCommand}" />
+                        <MenuItem Header="下移" Command="{Binding MoveDownCommand}" />
+                        <Separator />
+                        <MenuItem Header="删除" Command="{Binding RemoveCommand}" />
+                    </ContextMenu>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="任务链" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding TaskSummary}" FontSize="11" HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="添加任务" FontSize="11" VerticalAlignment="Center"
+                       Margin="0,0,6,0" Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+            <ComboBox Grid.Column="1" x:Name="AddTaskBox" Height="26" ItemsSource="{Binding AvailableTasks}"
+                      DisplayMemberPath="DisplayName" SelectedValuePath="Name"
+                      ToolTip="把任务加入队列（可加多个同类实例）"
+                      SelectionChanged="AddTaskBox_SelectionChanged" />
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <ListBox x:Name="QueueList"
+                     ItemsSource="{Binding Queue}"
+                     SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
+                     ItemTemplate="{StaticResource QueueItemTemplate}"
+                     ItemContainerStyle="{StaticResource QueueItemContainerStyle}"
+                     AllowDrop="True"
+                     PreviewMouseLeftButtonDown="QueueList_PreviewMouseLeftButtonDown"
+                     MouseMove="QueueList_MouseMove"
+                     DragOver="QueueList_DragOver"
+                     Drop="QueueList_Drop"
+                     Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+
+            <!-- 空队列提示（ObservableCollection.Count 会通知，加/删任务后自动出现/消失） -->
+            <TextBlock Margin="8,10,8,0"
+                       HorizontalAlignment="Center" VerticalAlignment="Top"
+                       TextAlignment="Center"
+                       Text="队列还是空的：从上方「添加任务」加入，&#10;参数在任务页右侧面板里调">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource HintText}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Queue.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Grid>
+
+        <TextBlock Grid.Row="3" Style="{StaticResource HintText}" Margin="0,6,0,0"
+                   Text="拖拽排序 · 双击重命名 · 右键更多操作" />
+    </Grid>
+</UserControl>

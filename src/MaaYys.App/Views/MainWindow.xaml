@@ -4,15 +4,15 @@
         xmlns:vm="clr-namespace:MaaYys.App.ViewModels"
         xmlns:pages="clr-namespace:MaaYys.App.Views.Pages"
         Title="{Binding Title}"
-        Height="720" Width="1180"
-        MinWidth="900" MinHeight="560"
+        Height="780" Width="1320"
+        MinWidth="1040" MinHeight="640"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource ForegroundPrimaryBrush}">
 
     <Window.Resources>
         <!-- ViewModel → View 映射：ContentControl.Content 绑定 VM 即可自动套用 -->
-        <DataTemplate DataType="{x:Type vm:HomeViewModel}">
-            <pages:HomeView />
+        <DataTemplate DataType="{x:Type vm:WorkbenchViewModel}">
+            <pages:WorkbenchView />
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:TasksViewModel}">
             <pages:TasksView />
@@ -92,18 +92,50 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 顶部栏：标题 / 运行控制（P5.3 启用） / 主题切换 -->
-        <Border Grid.Row="0" Padding="16,12" Background="{DynamicResource PanelBackgroundBrush}"
+        <!-- 顶部栏：标题 / 运行状态总览 + 全局开始·暂停·停止（P6.1） / 主题切换 -->
+        <Border Grid.Row="0" Padding="16,10" Background="{DynamicResource PanelBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
             <Grid>
-                <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="开始" Width="88" Height="32" Margin="0,0,8,0" IsEnabled="False"
-                            Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentForegroundBrush}"
-                            BorderThickness="0" />
-                    <Button Content="停止" Width="88" Height="32" Margin="0,0,8,0" IsEnabled="False" />
-                    <Button Content="{Binding ThemeLabel}" Width="88" Height="32"
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="17" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="0,0,16,0" />
+
+                <!-- 任务运行状态总览：运行态 + 当前任务 + 完成/失败/跳过/总数 -->
+                <TextBlock Grid.Column="1" Text="{Binding Tasks.RunOverview}" FontSize="12"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Margin="0,0,16,0" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                           ToolTip="{Binding Tasks.RunOverview}" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="开始" Width="76" Height="32" Margin="0,0,8,0"
+                            Command="{Binding Tasks.RunQueueCommand}"
+                            ToolTip="按队列顺序执行所有启用的任务">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Style.Triggers>
+                                    <!-- 队列为空 / 引擎未就绪时命令不可用，视觉上要能看出来 -->
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Opacity" Value="0.4" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="暂停" Width="76" Height="32" Margin="0,0,8,0"
+                            Command="{Binding Tasks.PauseResumeCommand}"
+                            ToolTip="暂停会中止当前任务，继续时从该任务重新开始" />
+                    <Button Content="停止" Width="76" Height="32" Margin="0,0,8,0"
+                            Command="{Binding Tasks.StopRunCommand}" />
+                    <Button Content="{Binding ThemeLabel}" Width="76" Height="32"
                             Command="{Binding ToggleThemeCommand}" />
                 </StackPanel>
             </Grid>

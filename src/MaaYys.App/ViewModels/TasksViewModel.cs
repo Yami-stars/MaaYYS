@@ -396,6 +396,35 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         _ => "空闲",
     };
 
+    /// <summary>
+    /// 运行状态总览（P6.1 主界面顶部）：运行态 + 当前任务 + 完成/失败/跳过计数。
+    /// 队列为空或全部跑完时退化为纯计数，一眼能看出「还剩多少」。
+    /// </summary>
+    public string RunOverview
+    {
+        get
+        {
+            int total = Queue.Count;
+            if (total == 0)
+            {
+                return "队列为空 · 到任务页添加任务";
+            }
+
+            int done = Queue.Count(q => q.Status == TaskRunStatus.Done);
+            int failed = Queue.Count(q => q.Status == TaskRunStatus.Failed);
+            int skipped = Queue.Count(q => q.Status == TaskRunStatus.Skipped);
+            string counters = $"完成 {done} · 失败 {failed} · 跳过 {skipped} · 共 {total}";
+
+            if (_runner?.IsBusy != true)
+            {
+                return $"{RunStateText} · {counters}";
+            }
+
+            string current = Queue.FirstOrDefault(q => q.Status == TaskRunStatus.Running)?.DisplayName ?? "准备中";
+            return $"{RunStateText} · {current} · {counters}";
+        }
+    }
+
     /// <summary>上一轮执行的汇总（成功/失败/跳过计数）。</summary>
     public string LastRunSummary
     {
@@ -458,6 +487,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         }
 
         OnPropertyChanged(nameof(TaskSummary));
+        OnPropertyChanged(nameof(RunOverview));
     }
 
     private void RefreshInstanceCounts(TaskConfiguration group)
@@ -615,6 +645,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         SaveGroup(group);
         Message = $"{SelectedConfiguration}：{EnabledCount}/{Queue.Count} 个任务已启用";
         OnPropertyChanged(nameof(TaskSummary));
+        OnPropertyChanged(nameof(RunOverview));
         OnPropertyChanged(nameof(TaskHint));
     }
 
@@ -753,6 +784,8 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         {
             OnPropertyChanged(nameof(TaskSummary));
         }
+
+        OnPropertyChanged(nameof(RunOverview));
     });
 
     private void OnExecutorStateChanged(object? sender, ExecutionState state) => Post(RaiseRunStates);
@@ -774,6 +807,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(CanStartRun));
         OnPropertyChanged(nameof(RunStateText));
+        OnPropertyChanged(nameof(RunOverview));
         (RunQueueCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (StopRunCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (PauseResumeCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -805,6 +839,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         }
 
         OnPropertyChanged(nameof(TaskSummary));
+        OnPropertyChanged(nameof(RunOverview));
         return true;
     }
 
@@ -1216,6 +1251,11 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         (ResetTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (ResetAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (AddTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
+
+        // 队列增删 / 重排后，摘要、运行总览、开始按钮可用态都要跟着变
+        // （P6.1：顶部工具栏与任务链在同一个窗口里，漏掉就会出现「列表已有 4 项、摘要仍写 0 项」）
+        OnPropertyChanged(nameof(TaskSummary));
+        RaiseRunStates();
     }
 
     public void Dispose()

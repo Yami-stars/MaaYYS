@@ -35,6 +35,14 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
 
+        // 调试：--size 1280x720 指定窗口尺寸（P6.1 的验收条件就是「1280×720 布局无截断」，
+        // 靠默认尺寸截图无法证明这一点）
+        if (ReadOption(e.Args, "--size") is { } size && TryParseSize(size, out double requestedWidth, out double requestedHeight))
+        {
+            window.Width = requestedWidth;
+            window.Height = requestedHeight;
+        }
+
         // 资源版本更新后，旧版本留下的不可达节点 / 未引用模板与模型 / *.bak 在后台自动清掉。
         // 截图模式不跑：那种模式进程几秒就退出，后台任务半途被杀没有意义。
         if (!e.Args.Contains("--screenshot"))
@@ -86,6 +94,20 @@ public partial class App : Application
             {
                 MainViewModel? viewModel = window.DataContext as MainViewModel;
                 viewModel?.SelectPage(page);
+
+                // 可选：往当前配置组的队列里加任务（--add-task 名称，可重复）
+                // 走与「添加任务」下拉完全相同的一条路，用于无人值守校验任务链 / 状态总览
+                foreach (string entryName in ReadOptions(e.Args, "--add-task"))
+                {
+                    viewModel?.Tasks.AddTaskCommand.Execute(entryName);
+                    await Task.Delay(150);
+                }
+
+                // 可选：折叠主界面面板（--collapse 连接|截图|日志，可重复），校验折叠后的行高回落
+                foreach (string panelName in ReadOptions(e.Args, "--collapse"))
+                {
+                    viewModel?.Workbench.CollapsePanel(panelName);
+                }
 
                 // 可选：任务页自动选中某个任务（配合 --screenshot 校验参数面板）
                 if (ReadOption(e.Args, "--task") is { } taskName && viewModel?.CurrentPage is TasksViewModel tasksPage)
@@ -281,6 +303,19 @@ public partial class App : Application
     {
         int index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>解析 <c>1280x720</c> 形式的窗口尺寸。</summary>
+    private static bool TryParseSize(string raw, out double width, out double height)
+    {
+        width = 0;
+        height = 0;
+        string[] parts = raw.Split('x', 'X');
+        return parts.Length == 2
+               && double.TryParse(parts[0], out width)
+               && double.TryParse(parts[1], out height)
+               && width >= 800
+               && height >= 560;
     }
 
     /// <summary>读取可重复出现的选项（<c>--set-option a --set-option b</c>）。</summary>

@@ -4,7 +4,7 @@
 
 - 功能设计基准：MaaYYs-win32 MXU v3.13.6
 - UI / 设置体系基准：MAA v6.20.1
-- 当前阶段：**P5 核心功能实现**（P1/P2/P3/P4 已全部完成；P4 验收见 `docs/P4-agent功能移植.md` 与 `docs/MaaYys-开发流程表.md` §15）
+- 当前阶段：**P6 UI 与设置体系**（P1–P5 已全部完成；P5 验收见 `docs/MaaYys-开发流程表.md` §16–§19，P6.1 见 `docs/P6.1-主界面布局.md`）
 
 > 本项目仅用于学习与交流，请自行承担使用风险。
 
@@ -158,8 +158,20 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 | 5.1 | 任务队列系统 | ✅ 完成（多实例唯一 Id / 拖拽重排 / 别名 / 启用禁用 / 运行态色条 / 右键「从此处运行」；`TaskConfigurationTests` 8 例） |
 | 5.2 | 选项系统 | ✅ 完成（全局级选项 MXU `setting` 扩展；`Compile` 全局层合并 + `CompileGlobal`；任务页「任务参数 / 全局选项」双页；190/190 测试） |
 | 5.3 | 任务执行引擎 | ✅ 完成（`Engine/Execution/`：`QueueExecutor` 顺序投递 + 停止/暂停 + 重试 + 停滞超时 + 时长上限；`ExecutionPlan` 编译投递契约；任务页运行控制条；209/209 测试） |
-| 5.4 | 定时任务 | ✅ 完成（`Engine/Scheduling/`：`TimerRules` 周计划位掩码 + `TimerScheduler` 20 秒轮询 / 同分钟去重 / 重启不补跑；`QueueRunService` 统一执行入口，手动与定时共用；`TimerRunner` 强制定时启动；「定时」页行内编辑 + 试跑；229/229 测试。开机自启移交 P6.1） |
+| 5.4 | 定时任务 | ✅ 完成（`Engine/Scheduling/`：`TimerRules` 周计划位掩码 + `TimerScheduler` 20 秒轮询 / 同分钟去重 / 重启不补跑；`QueueRunService` 统一执行入口，手动与定时共用；`TimerRunner` 强制定时启动；「定时」页行内编辑 + 试跑；229/229 测试。开机自启改归 P6.2 设置中心-系统类） |
 | 5.5 | 日志系统 | ✅ 完成（`Engine/Logging/`：`LogBuffer` 环形缓冲 + 原生事件翻译 + agent stdout/stderr 并入 + 截图缩略卡片 + 文本/CSV 导出；`LogOptions` 时间格式持久化；「日志」页过滤/滚动/导出；266/266 测试。顺带修掉暗色主题 CheckBox 标签不可见的全局渲染问题） |
+
+## P6 进度（**1/5**）
+
+详见 [`docs/MaaYys-开发流程表.md`](docs/MaaYys-开发流程表.md) §20 与 [`docs/P6.1-主界面布局.md`](docs/P6.1-主界面布局.md)。
+
+| # | 任务 | 状态 |
+|---|---|---|
+| 6.1 | 主界面布局 | ✅ 完成（`WorkbenchView`：左任务链 + 右连接/截图/日志三面板可折叠 + 顶部开始/暂停/停止 + 运行总览；任务链抽成 `Controls/TaskQueueView` 与任务页共用；`MainViewModel.Tasks` 单一实例；日志面板轮询增量、留 200 行；1280×720 / 1040×640 截图无截断，266/266 测试） |
+| 6.2 | 设置中心-系统类 | 待开始（连接设置 / 启动设置含开机自启 / 运行设置；P5.3·P5.4 策略参数与日志落盘一并暴露） |
+| 6.3 | 设置中心-应用类 | 待开始 |
+| 6.4 | 界面细节打磨 | 待开始 |
+| 6.5 | 任务设置面板 | 待开始 |
 
 ### 缓存清理与资源整理（2026-10-26）
 
@@ -718,11 +730,11 @@ MaaYys.exe --page 3 --scale 2 --screenshot out.png            # 2 倍分辨率�
 
 新增 `src/MaaYys.App`（`net9.0-windows` + WPF，输出 `MaaYys.exe`）：
 
-- **导航框架**：左侧 4 个页签（首页 / 任务 / 连接 / 设置），`ContentControl` + `DataTemplate` 按 ViewModel 类型自动套用页面，页面懒创建并缓存（切换不丢状态）
+- **导航框架**：左侧页签（主界面 / 任务 / 定时 / 日志 / 连接 / 实例 / 设置），`ContentControl` + `DataTemplate` 按 ViewModel 类型自动套用页面，页面懒创建并缓存（切换不丢状态）。P6.1 把原「首页」换成「主界面」（工作台），引擎版本信息移入连接面板底部
 - **明暗主题**：`Themes/Theme.Dark.xaml` / `Theme.Light.xaml`（键一一对应，暗色对标 MAA 观感），`ThemeManager` 整体替换 Application 级资源字典；顶栏按钮实时切换
 - **MVVM 基础**：`ViewModelBase`（SetProperty / OnPropertyChanged）、`RelayCommand`（无第三方 MVVM 框架依赖）
 - **DPI**：`app.manifest` 声明 `PerMonitorV2`（P1.6 评审要求，避免截图/点击坐标被 DPI 虚拟化带偏）
-- **引擎联动**：首页读取 `MaaFramework.Version` / 运行库路径，缺库降级为提示而非崩溃
+- **引擎联动**：主界面连接面板读取 `MaaFramework.Version`，缺库降级为提示而非崩溃
 
 验证：`dotnet build` 0 警告 0 错误；`MaaYys.exe` 启动存活、无异常抛出。
 

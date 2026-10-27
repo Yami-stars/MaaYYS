@@ -228,6 +228,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         {
             State = InstanceState.Error;
             StatusText = $"配置无效：{errors[0]}";
+            LogConnect(LogLevel.Error, $"配置无效：{errors[0]}");
             return;
         }
 
@@ -235,6 +236,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         State = InstanceState.Connecting;
         PreviewSource = null;
         Diagnostic = string.Empty;
+        LogConnect(LogLevel.Info, $"开始连接（{Definition.DeviceSummary}）");
         try
         {
             StatusText = $"正在定位设备（{Definition.DeviceSummary}）…";
@@ -245,6 +247,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
                 StatusText = Definition.DeviceKind == InstanceDeviceKind.Win32
                     ? $"未找到匹配窗口（标题正则「{Definition.Win32TitleRegex}」），请确认游戏已启动"
                     : $"未找到 ADB 设备（{Definition.AdbAddress}），请确认模拟器已启动且 adb 已连接";
+                LogConnect(LogLevel.Warn, StatusText);
                 return;
             }
 
@@ -253,6 +256,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
                 string holderName = _store.Find(holder ?? string.Empty)?.Name ?? holder ?? "其他实例";
                 State = InstanceState.Error;
                 StatusText = $"设备已被实例「{holderName}」占用（同一设备不能多实例同时连接）";
+                LogConnect(LogLevel.Warn, StatusText);
                 return;
             }
 
@@ -281,11 +285,13 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
                 CleanupConnection();
                 State = InstanceState.Error;
                 StatusText = $"连接失败：{result.Error}";
+                LogConnect(LogLevel.Error, StatusText);
                 return;
             }
 
             State = InstanceState.Connected;
             StatusText = $"已连接 · {engine.Controller} · {engine.Uuid}";
+            LogConnect(LogLevel.Info, $"已连接（{engine.Controller}）");
 
             // 记住命中窗口：下次连接优先选它（游戏重开后按正则重扫）
             if (device.Kind == DeviceKind.Win32)
@@ -315,12 +321,20 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
             CleanupConnection();
             State = InstanceState.Error;
             StatusText = $"连接异常：{ex.Message}";
+            LogConnect(LogLevel.Error, StatusText);
         }
         finally
         {
             IsBusy = false;
         }
     }
+
+    /// <summary>
+    /// 写一条「连接」日志（P6.1）：主界面日志面板要能看见连接失败，
+    /// 否则面板在设备未启动时永远只有启动那一行，等于摆设。
+    /// </summary>
+    private void LogConnect(LogLevel level, string message)
+        => _logSink.Write(level, "Engine", $"实例「{DisplayName}」{message}", "connect");
 
     /// <summary>
     /// 按实例配置的资源集加载资源链（P2.5）。失败只记录状态，**不影响已建立的连接与预览**——
@@ -605,6 +619,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         ClearPreview();
         FrameInfo = "无画面";
         StatusText = "已断开";
+        LogConnect(LogLevel.Info, "已断开连接");
     }
 
     private void ClearPreview()
