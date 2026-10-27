@@ -28,6 +28,9 @@ public sealed class AppSettings
     [JsonPropertyName("file_log")]
     public FileLogSettings FileLog { get; set; } = new();
 
+    [JsonPropertyName("notification")]
+    public NotificationSettings Notification { get; set; } = new();
+
     public static AppSettings Default { get; } = new();
 
     /// <summary>夹取到合法区间（就地把非法值改回来，返回自身便于链式调用）。</summary>
@@ -37,11 +40,13 @@ public sealed class AppSettings
         Startup ??= new StartupSettings();
         Run ??= new RunSettings();
         FileLog ??= new FileLogSettings();
+        Notification ??= new NotificationSettings();
 
         Connection.Sanitize();
         Startup.Sanitize();
         Run.Sanitize();
         FileLog.Sanitize();
+        Notification.Sanitize();
         return this;
     }
 
@@ -64,11 +69,13 @@ public sealed class AppSettings
         Startup ??= new StartupSettings();
         Run ??= new RunSettings();
         FileLog ??= new FileLogSettings();
+        Notification ??= new NotificationSettings();
 
         Connection.CopyFrom(other.Connection);
         Startup.CopyFrom(other.Startup);
         Run.CopyFrom(other.Run);
         FileLog.CopyFrom(other.FileLog);
+        Notification.CopyFrom(other.Notification);
         return this;
     }
 }

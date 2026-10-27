@@ -15,6 +15,9 @@
         <DataTemplate DataType="{x:Type vm:RunSettingsViewModel}">
             <settings:RunSettingsView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:NotificationSettingsViewModel}">
+            <settings:NotificationSettingsView />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:StorageSettingsViewModel}">
             <settings:StorageSettingsView />
         </DataTemplate>

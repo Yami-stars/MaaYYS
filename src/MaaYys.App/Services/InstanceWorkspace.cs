@@ -66,8 +66,11 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         // P6.2：前置程序启动（连接时自动拉起游戏）
         Launch = new LaunchService(Configurations);
 
+        // P6.3：通知聚合（应用内 Toast + 外部 Webhook），队列关键节点调用
+        Notifier = new NotificationService(this);
+
         // P5.3 / P5.4：执行入口与定时调度跟着工作区走，页面未创建也生效
-        Runner = new QueueRunService(this);
+        Runner = new QueueRunService(this, Notifier);
         Timers = new TimerRunner(this);
     }
 
@@ -84,6 +87,9 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
 
     /// <summary>前置程序启动（P6.2）：连接时找不到窗口就拉起来再等。</summary>
     public LaunchService Launch { get; }
+
+    /// <summary>通知聚合（P6.3）：应用内 Toast + 外部 Webhook，队列关键节点调用。</summary>
+    public NotificationService Notifier { get; }
 
     /// <summary>配置组（P2.6：命名任务配置，可被多个实例共用）。</summary>
     public ConfigurationStore Configurations { get; }

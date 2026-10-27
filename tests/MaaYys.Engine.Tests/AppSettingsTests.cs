@@ -27,6 +27,55 @@ public sealed class AppSettingsTests
         Assert.True(settings.Run.StopOnFailure);
         Assert.Equal("none", settings.Run.AfterCompletion);
         Assert.False(settings.FileLog.Enabled);
+
+        // P6.3：通知设置默认值
+        Assert.Equal(0, settings.Notification.StuckTimeoutSeconds);
+        Assert.Equal(0, settings.Notification.ReminderIntervalMinutes);
+        Assert.False(settings.Notification.ExternalEnabled);
+        Assert.True(settings.Notification.OnComplete);
+        Assert.True(settings.Notification.OnFailure);
+        Assert.True(settings.Notification.OnStuck);
+        Assert.Equal("POST", settings.Notification.WebhookMethod);
+        Assert.Equal("application/json", settings.Notification.WebhookContentType);
+        Assert.False(settings.Notification.ExternalReady());
+    }
+
+    [Fact]
+    public void NotificationSanitize_ClampsRangesAndNormalizesMethod()
+    {
+        var settings = new AppSettings
+        {
+            Notification = new NotificationSettings
+            {
+                StuckTimeoutSeconds = 99999,
+                ReminderIntervalMinutes = -10,
+                WebhookMethod = "delete",
+                WebhookContentType = "   ",
+            },
+        };
+
+        settings.Sanitized();
+
+        Assert.Equal(3600, settings.Notification.StuckTimeoutSeconds);
+        Assert.Equal(0, settings.Notification.ReminderIntervalMinutes);
+        Assert.Equal("POST", settings.Notification.WebhookMethod); // 未知方法回落 POST
+        Assert.Equal("application/json", settings.Notification.WebhookContentType); // 空 Content-Type 回落默认
+    }
+
+    [Fact]
+    public void NotificationExternalReady_RequiresEnabledUrlAndTrigger()
+    {
+        var off = new NotificationSettings { ExternalEnabled = false, WebhookUrl = "http://x", OnComplete = true };
+        Assert.False(off.ExternalReady());
+
+        var noUrl = new NotificationSettings { ExternalEnabled = true, WebhookUrl = "", OnComplete = true };
+        Assert.False(noUrl.ExternalReady());
+
+        var noTrigger = new NotificationSettings { ExternalEnabled = true, WebhookUrl = "http://x", OnComplete = false, OnFailure = false, OnStuck = false };
+        Assert.False(noTrigger.ExternalReady());
+
+        var ready = new NotificationSettings { ExternalEnabled = true, WebhookUrl = "http://x", OnComplete = true };
+        Assert.True(ready.ExternalReady());
     }
 
     [Fact]

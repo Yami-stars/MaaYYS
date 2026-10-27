@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using MaaYys.App.ViewModels;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
 using MaaYys.Engine.Execution;
 using MaaYys.Engine.Logging;
+using MaaYys.Engine.Notification;
 
 namespace MaaYys.App.Services;
 
@@ -40,10 +42,22 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
     private bool _starting;
     private bool _disposed;
 
-    public QueueRunService(InstanceWorkspace workspace, ExecutionOptions? options = null)
+    /// <summary>通知聚合（P6.3）；为 null 时（测试 / 无工作区）不通知。</summary>
+    private readonly NotificationService? _notifier;
+
+    /// <summary>运行期通知定时器（卡住超时 / 提醒间隔共用，15 秒一跳）。</summary>
+    private Timer? _notifyTimer;
+
+    private DateTime _runStartUtc;
+    private DateTime _lastActivityUtc;
+    private bool _stuckFired;
+    private int _reminderCount;
+
+    public QueueRunService(InstanceWorkspace workspace, NotificationService? notifier = null, ExecutionOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         _workspace = workspace;
+        _notifier = notifier;
         _optionsOverride = options;
     }
 
@@ -114,6 +128,13 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
 
         RunSettings run = _workspace.Configurations.Settings.Run;
 
+        // P6.3：启动运行期通知定时器（卡住超时 / 提醒间隔）
+        _runStartUtc = DateTime.UtcNow;
+        _lastActivityUtc = DateTime.UtcNow;
+        _stuckFired = false;
+        _reminderCount = 0;
+        StartNotifyTimer();
+
         // P6.2：执行期间阻止系统休眠（长跑最容易被「睡过去」打断）
         if (run.PreventSleep && _sleepToken is null)
         {
@@ -163,7 +184,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
             TaskScheduler.Default);
 
         _ = task.ContinueWith(
-            t => FinishRun(run, t),
+            t => FinishRun(run, group, t),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
@@ -219,6 +240,10 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
 
     private void OnItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e)
     {
+        // P6.3：任何任务状态变化都算「有进展」，刷新卡住计时并解除已触发的卡住提示
+        _lastActivityUtc = DateTime.UtcNow;
+        _stuckFired = false;
+
         LogItem(e);
         ItemStatusChanged?.Invoke(this, e);
     }
@@ -306,9 +331,11 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         _sleepToken = null;
     }
 
-    /// <summary>跑完一轮后的收尾：后置脚本 → 释放防休眠 → 完成后动作。</summary>
-    private void FinishRun(RunSettings run, Task<ExecutionSummary> task)
+    /// <summary>跑完一轮后的收尾：停通知定时器 → 后置脚本 → 释放防休眠 → 通知 → 完成后动作。</summary>
+    private void FinishRun(RunSettings run, TaskConfiguration group, Task<ExecutionSummary> task)
     {
+        StopNotifyTimer();
+
         if (!string.IsNullOrWhiteSpace(run.PostScriptPath))
         {
             try
@@ -324,20 +351,121 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         ReleaseSleepGuard();
 
         ExecutionOutcome outcome;
+        int failed;
         try
         {
-            outcome = task.Result.Outcome;
+            ExecutionSummary summary = task.Result;
+            outcome = summary.Outcome;
+            failed = summary.Failed;
         }
         catch
         {
             return;   // 异常已由 LogSummary 记过，不触发动作
         }
 
+        // P6.3：按结果发通知（应用内 Toast + 外部 Webhook），失败只记日志不阻断
+        NotifyFinish(group, outcome, failed);
+
         // 只有「正常跑完」才执行动作：失败 / 停止 / 暂停都不算
         if (outcome == ExecutionOutcome.Completed && !string.Equals(run.AfterCompletion, "none", StringComparison.Ordinal))
         {
             ApplyAfterCompletion(run.AfterCompletion);
         }
+    }
+
+    // ---- P6.3 运行期通知（卡住超时 / 提醒间隔 / 完成失败） ----
+
+    private void StartNotifyTimer()
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        _notifyTimer ??= new Timer(_ => NotifyTick(), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+    }
+
+    private void StopNotifyTimer()
+    {
+        _notifyTimer?.Dispose();
+        _notifyTimer = null;
+    }
+
+    private void NotifyTick()
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        // 只在真正运行期间判断（暂停/停止/空闲都不算）
+        if (State != ExecutionState.Running)
+        {
+            return;
+        }
+
+        NotificationSettings notify = _workspace.Configurations.Settings.Notification;
+        DateTime now = DateTime.UtcNow;
+
+        // 卡住超时：超过设定时长没有任何任务状态变化
+        if (notify.StuckTimeoutSeconds > 0 && !_stuckFired)
+        {
+            double idle = (now - _lastActivityUtc).TotalSeconds;
+            if (idle >= notify.StuckTimeoutSeconds)
+            {
+                _stuckFired = true;
+                FireNotify(NotificationTrigger.Stuck, "任务可能卡住了", $"已 {idle:F0} 秒无任何任务进展，请检查游戏是否失去响应。");
+            }
+        }
+
+        // 提醒间隔：每 N 分钟提示一次仍在运行（仅应用内 Toast，不发外部）
+        if (notify.ReminderIntervalMinutes > 0)
+        {
+            double elapsedMin = (now - _runStartUtc).TotalMinutes;
+            if (elapsedMin >= (double)(_reminderCount + 1) * notify.ReminderIntervalMinutes)
+            {
+                _reminderCount++;
+                int minutes = (int)elapsedMin;
+                FireNotify(NotificationTrigger.Test, "队列仍在运行", $"已连续运行约 {minutes} 分钟。", sendExternal: false);
+            }
+        }
+    }
+
+    private void NotifyFinish(TaskConfiguration group, ExecutionOutcome outcome, int failed)
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        string name = group.Name ?? "未命名配置组";
+        if (outcome == ExecutionOutcome.Completed)
+        {
+            FireNotify(NotificationTrigger.Completed, "队列完成", $"配置组「{name}」已正常跑完。");
+        }
+        else if (failed > 0 || outcome == ExecutionOutcome.Failed)
+        {
+            FireNotify(NotificationTrigger.Failed, "队列失败", $"配置组「{name}」有 {failed} 个任务失败（{outcome}）。");
+        }
+    }
+
+    /// <summary>异步发通知但吞掉异常：收尾在引擎线程，通知失败绝不能反噬队列。</summary>
+    private void FireNotify(NotificationTrigger trigger, string title, string message, bool sendExternal = true)
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        _notifier.NotifyAsync(trigger, title, message, sendExternal).ContinueWith(
+            t =>
+            {
+                if (t.Exception is { } ex)
+                {
+                    _workspace.Log.Error("Notify", $"通知异常：{ex.InnerException?.Message ?? ex.Message}", "notify");
+                }
+            },
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     /// <summary>
@@ -459,6 +587,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        StopNotifyTimer();
         ReleaseSleepGuard();
         DisposeExecutor();
     }

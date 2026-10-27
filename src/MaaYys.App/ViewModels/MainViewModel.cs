@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows.Input;
+using System.Windows.Threading;
 using MaaYys.App.Services;
 using MaaYys.App.Themes;
 
@@ -84,9 +85,51 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     /// <summary>状态栏：当前实例 + 连接状态 + 帧率。</summary>
     public string StatusText => _workspace.StatusSummary;
 
+    // ---- P6.3 应用内 Toast（队列关键节点的轻提示，4 秒自隐） ----
+
+    private string _toastTitle = string.Empty;
+    private string _toastMessage = string.Empty;
+    private bool _toastVisible;
+    private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+
+    public string ToastTitle
+    {
+        get => _toastTitle;
+        private set => SetProperty(ref _toastTitle, value);
+    }
+
+    public string ToastMessage
+    {
+        get => _toastMessage;
+        private set => SetProperty(ref _toastMessage, value);
+    }
+
+    public bool ToastVisible
+    {
+        get => _toastVisible;
+        private set => SetProperty(ref _toastVisible, value);
+    }
+
+    /// <summary>弹一条应用内提示，4 秒后自动消失。</summary>
+    public void ShowToast(string title, string message)
+    {
+        ToastTitle = title ?? string.Empty;
+        ToastMessage = message ?? string.Empty;
+        ToastVisible = true;
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
+    public void HideToast()
+    {
+        _toastTimer.Stop();
+        ToastVisible = false;
+    }
+
     public ICommand ToggleThemeCommand { get; }
     public ICommand AddInstanceCommand { get; }
     public ICommand CloseInstanceCommand { get; }
+    public ICommand HideToastCommand { get; }
 
     public MainViewModel()
         : this(new InstanceWorkspace())
@@ -99,6 +142,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _workspace.CurrentChanged += OnWorkspaceCurrentChanged;
         _workspace.PropertyChanged += OnWorkspacePropertyChanged;
         _workspace.Instances.CollectionChanged += OnInstancesChanged;
+        _workspace.Notifier.ToastRequested += OnToastRequested;
+        _toastTimer.Tick += (_, _) => HideToast();
 
         Tasks = new TasksViewModel(_workspace);
         InstancePage = new InstancesViewModel(_workspace);
@@ -126,6 +171,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 _workspace.Remove(target, out _);
             }
         });
+        HideToastCommand = new RelayCommand(_ => HideToast());
 
         // P5.4：定时调度随程序启动，不依赖「小工具」页是否被打开
         _workspace.Timers.Start();
@@ -179,6 +225,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(StatusText));
     }
 
+    private void OnToastRequested(object? sender, ToastEventArgs e)
+    {
+        // 来自队列回调线程，但 NotificationService 已用 UI 同步上下文抛回主线程
+        ShowToast(e.Title, e.Message);
+    }
+
     private void OnInstancesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(Instances));
@@ -202,6 +254,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _workspace.CurrentChanged -= OnWorkspaceCurrentChanged;
         _workspace.PropertyChanged -= OnWorkspacePropertyChanged;
         _workspace.Instances.CollectionChanged -= OnInstancesChanged;
+        _workspace.Notifier.ToastRequested -= OnToastRequested;
+        _toastTimer.Stop();
 
         // 常驻页面可能既被导航项持有、又被字段持有，用引用相等去重，避免同一 VM 释放两次
         HashSet<IDisposable> released = new(ReferenceEqualityComparer.Instance);

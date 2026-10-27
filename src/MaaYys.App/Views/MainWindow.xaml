@@ -33,6 +33,9 @@
             <pages:ConnectionView />
         </DataTemplate>
 
+        <!-- 布尔 → 可见性（Toast 横幅） -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
         <!-- 顶部页签（MAA 式）：文字 + 选中下划线 -->
         <Style x:Key="TopTabItemStyle" TargetType="ListBoxItem">
             <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
@@ -138,6 +141,34 @@
 
         <!-- ============ 内容 ============ -->
         <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" Margin="14" />
+
+        <!-- ============ 应用内 Toast 横幅（P6.3：队列关键节点轻提示，4 秒自隐） ============ -->
+        <Border Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center"
+                Margin="0,18,0,0" Padding="16,12" MaxWidth="420"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                CornerRadius="10"
+                Visibility="{Binding ToastVisible, Converter={StaticResource BoolToVisibility}}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.35" />
+            </Border.Effect>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="{Binding ToastTitle}" FontWeight="SemiBold" FontSize="13"
+                               Foreground="{DynamicResource ForegroundPrimaryBrush}" />
+                    <TextBlock Text="{Binding ToastMessage}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="✕" Width="24" Height="24" Margin="10,0,0,0"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                        Command="{Binding HideToastCommand}" />
+            </Grid>
+        </Border>
 
         <!-- ============ 状态栏 ============ -->
         <Border Grid.Row="2" Padding="14,6" Background="{DynamicResource PanelBackgroundBrush}"

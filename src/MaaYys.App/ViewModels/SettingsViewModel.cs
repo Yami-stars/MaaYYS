@@ -4,14 +4,14 @@ using MaaYys.App.Services;
 namespace MaaYys.App.ViewModels;
 
 /// <summary>
-/// 设置页（P6.2）：左侧二级导航 + 右侧内容，对标 MAA 的设置中心。
+/// 设置页（P6.2 / P6.3）：左侧二级导航 + 右侧内容，对标 MAA 的设置中心。
 /// <para>
-/// 五个分类：连接 / 启动 / 运行 / 日志与缓存 / 关于。每个子页直接读写
+/// 六个分类：连接 / 启动 / 运行 / 通知 / 日志与缓存 / 关于。每个子页直接读写
 /// <c>config/maayys.json</c> 的 <c>settings</c> 段（即时生效，没有「保存」按钮）。
 /// </para>
 /// <para>
 /// 为什么分区：设置项从 2 项涨到 20+ 项后，一页滚到底会让人找不到东西；
-/// 分类后每页只回答一个问题（连不上 / 游戏没开 / 跑一半卡住 / 日志与空间 / 版本与路径）。
+/// 分类后每页只回答一个问题（连不上 / 游戏没开 / 跑一半卡住 / 通知 / 日志与空间 / 版本与路径）。
 /// </para>
 /// </summary>
 public sealed class SettingsViewModel : ViewModelBase, IDisposable
@@ -28,6 +28,7 @@ public sealed class SettingsViewModel : ViewModelBase, IDisposable
         Items.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionSettingsViewModel(workspace) });
         Items.Add(new NavigationItem { Name = "启动", Glyph = "▶", PageFactory = () => new StartupSettingsViewModel(workspace) });
         Items.Add(new NavigationItem { Name = "运行", Glyph = "⚡", PageFactory = () => new RunSettingsViewModel(workspace) });
+        Items.Add(new NavigationItem { Name = "通知", Glyph = "🔔", PageFactory = () => new NotificationSettingsViewModel(workspace) });
         Items.Add(new NavigationItem { Name = "日志与缓存", Glyph = "☰", PageFactory = () => new StorageSettingsViewModel(workspace) });
         Items.Add(new NavigationItem { Name = "关于", Glyph = "ℹ", PageFactory = () => new AboutViewModel(workspace) });
 
