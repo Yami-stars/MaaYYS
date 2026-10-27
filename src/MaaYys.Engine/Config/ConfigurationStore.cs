@@ -39,6 +39,7 @@ public sealed class ConfigurationStore
 
     private readonly object _gate = new();
     private readonly List<TaskConfiguration> _ordered = [];
+    private readonly List<Scheduling.TimerEntry> _timers = [];
 
     public ConfigurationStore(string? path = null)
     {
@@ -81,6 +82,21 @@ public sealed class ConfigurationStore
     /// <summary>加载期问题（文件损坏/版本过高/条目被纠正），供 UI 提示；不影响可用性。</summary>
     public List<string> LoadErrors { get; } = [];
 
+    /// <summary>
+    /// 定时计划（P5.4）：与配置组同级存放，跨配置组共享一份。
+    /// 返回的是副本，改动请走 <see cref="AddTimer"/> / <see cref="UpdateTimer"/> / <see cref="RemoveTimer"/>。
+    /// </summary>
+    public IReadOnlyList<Scheduling.TimerEntry> Timers
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers.Select(t => t.Clone()).ToList();
+            }
+        }
+    }
+
     /// <summary>配置内容或 Current 变化（UI 据此刷新下拉框与任务列表）。</summary>
     public event EventHandler? Changed;
 
@@ -106,6 +122,7 @@ public sealed class ConfigurationStore
         lock (_gate)
         {
             _ordered.Clear();
+            _timers.Clear();
             LoadErrors.Clear();
             Current = null;
 
@@ -137,6 +154,7 @@ public sealed class ConfigurationStore
                     }
 
                     Adopt(document.Configurations);
+                    AdoptTimers(document.Timers);
                     Current = document.Current is { } current && FindCore(current) is not null
                         ? current
                         : _ordered.FirstOrDefault()?.Name;
@@ -397,6 +415,133 @@ public sealed class ConfigurationStore
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ---- 定时计划（P5.4） ----
+
+    /// <summary>新增一条定时计划（分配 Id、规整参数后落盘）。</summary>
+    public Scheduling.TimerEntry AddTimer(Scheduling.TimerEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        Scheduling.TimerEntry added = entry.Clone();
+        added.Id = string.Empty;
+        added.EnsureId();
+        Scheduling.TimerRules.Normalize(added);
+
+        lock (_gate)
+        {
+            _timers.Add(added);
+            SaveCore();
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+        return added.Clone();
+    }
+
+    /// <summary>按 Id 覆盖一条定时计划（含启停、时间、周计划、绑定配置）。</summary>
+    public bool UpdateTimer(Scheduling.TimerEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        lock (_gate)
+        {
+            int index = _timers.FindIndex(t => string.Equals(t.Id, entry.Id, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return false;
+            }
+
+            Scheduling.TimerEntry copy = entry.Clone();
+            Scheduling.TimerRules.Normalize(copy);
+            copy.Id = _timers[index].Id;
+            _timers[index] = copy;
+            SaveCore();
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    /// <summary>删除一条定时计划。</summary>
+    public bool RemoveTimer(string id)
+    {
+        bool removed;
+        lock (_gate)
+        {
+            removed = _timers.RemoveAll(t => string.Equals(t.Id, id, StringComparison.Ordinal)) > 0;
+            if (removed)
+            {
+                SaveCore();
+            }
+        }
+
+        if (removed)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return removed;
+    }
+
+    /// <summary>配置组被删除/改名后清理或改绑定时计划，避免指向不存在的组。</summary>
+    /// <returns>被改动（删除或改绑）的条数。</returns>
+    public int RetargetTimers(string oldConfiguration, string? newConfiguration)
+    {
+        int touched = 0;
+        lock (_gate)
+        {
+            if (string.IsNullOrEmpty(newConfiguration))
+            {
+                touched = _timers.RemoveAll(t => string.Equals(t.Configuration, oldConfiguration, StringComparison.Ordinal));
+            }
+            else
+            {
+                foreach (Scheduling.TimerEntry timer in _timers)
+                {
+                    if (string.Equals(timer.Configuration, oldConfiguration, StringComparison.Ordinal))
+                    {
+                        timer.Configuration = newConfiguration;
+                        touched++;
+                    }
+                }
+            }
+
+            if (touched > 0)
+            {
+                SaveCore();
+            }
+        }
+
+        if (touched > 0)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return touched;
+    }
+
+    /// <summary>
+    /// 记录某条计划已触发（写 <c>last_fired</c>），保证重启后同一分钟不重复跑。
+    /// </summary>
+    public void MarkTimerFired(string id, string minuteKey)
+    {
+        bool touched;
+        lock (_gate)
+        {
+            Scheduling.TimerEntry? target = _timers.FirstOrDefault(t => string.Equals(t.Id, id, StringComparison.Ordinal));
+            touched = target is not null && !string.Equals(target.LastFiredKey, minuteKey, StringComparison.Ordinal);
+            if (touched)
+            {
+                target!.LastFiredKey = minuteKey;
+                SaveCore();
+            }
+        }
+
+        if (touched)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     // ---- 导入 / 导出 ----
@@ -697,13 +842,50 @@ public sealed class ConfigurationStore
         }
     }
 
+    /// <summary>
+    /// 装载定时计划：补 Id、规整非法值、丢弃无名条目的重复项。调用方必须已持有 <see cref="_gate"/>。
+    /// </summary>
+    private void AdoptTimers(List<Scheduling.TimerEntry>? timers)
+    {
+        if (timers is null)
+        {
+            return;
+        }
+
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (Scheduling.TimerEntry timer in timers)
+        {
+            if (timer is null)
+            {
+                continue;
+            }
+
+            timer.EnsureId();
+            Scheduling.TimerRules.Normalize(timer);
+
+            if (!seen.Add(timer.Id))
+            {
+                LoadErrors.Add($"丢弃了重复 Id 的定时计划「{timer}」");
+                continue;
+            }
+
+            if (!Scheduling.TimerRules.IsValid(timer))
+            {
+                LoadErrors.Add($"定时计划「{(timer.Label ?? "未命名")}」参数非法（{timer.Hour:00}:{timer.Minute:00}），已跳过");
+                continue;
+            }
+
+            _timers.Add(timer);
+        }
+    }
+
     /// <summary>原子写：tmp → Move(overwrite)，上一版留 .bak。</summary>
     private void SaveCore()
     {
         string directory = System.IO.Path.GetDirectoryName(Path)!;
         Directory.CreateDirectory(directory);
 
-        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current), SerializerOptions);
+        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current, _timers), SerializerOptions);
         string temp = Path + ".tmp";
         File.WriteAllText(temp, json, new UTF8Encoding(false));
 
@@ -737,7 +919,10 @@ public sealed class ConfigurationStore
         return target;
     }
 
-    private static Document ToDocument(IEnumerable<TaskConfiguration> groups, string? current)
+    private static Document ToDocument(
+        IEnumerable<TaskConfiguration> groups,
+        string? current,
+        IReadOnlyList<Scheduling.TimerEntry>? timers = null)
     {
         var document = new Document
         {
@@ -748,6 +933,11 @@ public sealed class ConfigurationStore
         foreach (TaskConfiguration group in groups)
         {
             document.Configurations.Add(new Entry { Key = group.Name, Value = group });
+        }
+
+        if (timers is { Count: > 0 })
+        {
+            document.Timers = timers.Select(t => t.Clone()).ToList();
         }
 
         return document;
@@ -940,6 +1130,10 @@ public sealed class ConfigurationStore
         [JsonPropertyName("configurations")]
         [JsonConverter(typeof(EntryDictionaryConverter))]
         public List<Entry> Configurations { get; set; } = [];
+
+        /// <summary>定时计划（P5.4）：与配置组同级，跨组共享。</summary>
+        [JsonPropertyName("timers")]
+        public List<Scheduling.TimerEntry>? Timers { get; set; }
     }
 
     /// <summary>

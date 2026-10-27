@@ -17,6 +17,9 @@
         <DataTemplate DataType="{x:Type vm:TasksViewModel}">
             <pages:TasksView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TimersViewModel}">
+            <pages:TimersView />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:ConnectionViewModel}">
             <pages:ConnectionView />
         </DataTemplate>

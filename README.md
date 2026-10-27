@@ -149,7 +149,7 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 
 **遗留**：MXU 的 `agent/` 仅含 `agent.exe` 无源码，游戏交互类动作坐标/流程按 param schema 重建，需真机微调。
 
-## P5 进度（**3/5**）
+## P5 进度（**4/5**）
 
 详见 [`docs/MaaYys-开发流程表.md`](docs/MaaYys-开发流程表.md) §6.2。
 
@@ -158,7 +158,7 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 | 5.1 | 任务队列系统 | ✅ 完成（多实例唯一 Id / 拖拽重排 / 别名 / 启用禁用 / 运行态色条 / 右键「从此处运行」；`TaskConfigurationTests` 8 例） |
 | 5.2 | 选项系统 | ✅ 完成（全局级选项 MXU `setting` 扩展；`Compile` 全局层合并 + `CompileGlobal`；任务页「任务参数 / 全局选项」双页；190/190 测试） |
 | 5.3 | 任务执行引擎 | ✅ 完成（`Engine/Execution/`：`QueueExecutor` 顺序投递 + 停止/暂停 + 重试 + 停滞超时 + 时长上限；`ExecutionPlan` 编译投递契约；任务页运行控制条；209/209 测试） |
-| 5.4 | 定时任务 | ⬜ 待开始 |
+| 5.4 | 定时任务 | ✅ 完成（`Engine/Scheduling/`：`TimerRules` 周计划位掩码 + `TimerScheduler` 20 秒轮询 / 同分钟去重 / 重启不补跑；`QueueRunService` 统一执行入口，手动与定时共用；`TimerRunner` 强制定时启动；「定时」页行内编辑 + 试跑；229/229 测试。开机自启移交 P6.1） |
 | 5.5 | 日志系统 | ⬜ 待开始 |
 
 ### 缓存清理与资源整理（2026-10-26）

@@ -80,6 +80,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         NavigationItems.Add(new NavigationItem { Name = "首页", Glyph = "⌂", PageFactory = () => new HomeViewModel() });
         NavigationItems.Add(new NavigationItem { Name = "任务", Glyph = "≡", PageFactory = () => new TasksViewModel(_workspace) });
+        NavigationItems.Add(new NavigationItem { Name = "定时", Glyph = "⏱", PageFactory = () => new TimersViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionViewModel() });
         NavigationItems.Add(new NavigationItem { Name = "实例", Glyph = "❐", PageFactory = () => new InstancesViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "设置", Glyph = "⚙", PageFactory = () => new SettingsViewModel(_workspace) });
@@ -101,6 +102,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     _workspace.Remove(target, out _);
                 }
             });
+
+        // P5.4：定时调度随程序启动，不依赖「定时」页是否被打开
+        _workspace.Timers.Start();
     }
 
     /// <summary>实例清单路径（设置页 / 调试输出用）。</summary>

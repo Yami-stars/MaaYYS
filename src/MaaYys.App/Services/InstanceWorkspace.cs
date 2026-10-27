@@ -42,6 +42,10 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         Resources = ResourceProvider.Load(resolvedInterface);
         Store.Changed += (_, _) => SyncFromStore();
         SyncFromStore();
+
+        // P5.3 / P5.4：执行入口与定时调度跟着工作区走，页面未创建也生效
+        Runner = new QueueRunService(this);
+        Timers = new TimerRunner(this);
     }
 
     /// <summary>配置组（P2.6：命名任务配置，可被多个实例共用）。</summary>
@@ -101,6 +105,15 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
 
     /// <summary>资源集加载链（P2.5：按名字解析 bundle 路径，供实例连接/热切换使用）。</summary>
     public ResourceProvider Resources { get; }
+
+    /// <summary>
+    /// 队列执行入口（P5.3）：全程序唯一执行器，任务页与定时器共用。
+    /// 构造在 <see cref="InstanceWorkspace"/> 末尾，可用时一定非 null。
+    /// </summary>
+    public QueueRunService Runner { get; }
+
+    /// <summary>定时任务执行器（P5.4）：到点触发 <see cref="Runner"/>。</summary>
+    public TimerRunner Timers { get; }
 
     /// <summary>标签页集合（顺序 = 清单顺序）。</summary>
     public ObservableCollection<InstanceViewModel> Instances { get; } = [];
@@ -324,6 +337,9 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        Timers.Dispose();
+        Runner.Dispose();
+
         foreach (InstanceViewModel vm in Instances)
         {
             vm.PropertyChanged -= OnInstancePropertyChanged;

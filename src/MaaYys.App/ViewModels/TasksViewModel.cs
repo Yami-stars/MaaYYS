@@ -212,13 +212,9 @@ public sealed class GlobalOptionSectionViewModel : ViewModelBase
 public sealed class TasksViewModel : ViewModelBase, IDisposable
 {
     private readonly InstanceWorkspace? _workspace;
-    private readonly ExecutionOptions _executionOptions;
+    private readonly QueueRunService? _runner;
     private readonly SynchronizationContext? _uiContext;
 
-    private QueueExecutor? _executor;
-    private MaaEngineExecutionHost? _executorHost;
-    private MaaYysEngine? _executorEngine;
-    private bool _isBusyNow;
     private string _lastRunSummary = string.Empty;
 
     private bool _loading;
@@ -232,8 +228,14 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     public TasksViewModel(InstanceWorkspace? workspace, ExecutionOptions? executionOptions = null)
     {
         _workspace = workspace;
-        _executionOptions = executionOptions ?? ExecutionOptions.Default;
+        _runner = workspace?.Runner;
         _uiContext = SynchronizationContext.Current;
+
+        if (_runner is not null)
+        {
+            _runner.ItemStatusChanged += OnItemStatusChanged;
+            _runner.StateChanged += OnExecutorStateChanged;
+        }
 
         ResetTaskCommand = new RelayCommand(_ => ResetTaskOptions(), _ => SelectedQueueItem is not null && OptionRows.Count > 0);
         ResetAllCommand = new RelayCommand(_ => ResetAllOptions(), _ => Queue.Any(q => q.Options.Count > 0));
@@ -380,13 +382,13 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     public ICommand PauseResumeCommand { get; }
 
     /// <summary>执行器是否处于运行/暂停/停止中。</summary>
-    public bool IsBusy => _isBusyNow || _executor?.State is ExecutionState.Running or ExecutionState.Paused or ExecutionState.Stopping;
+    public bool IsBusy => _runner?.IsBusy == true;
 
     /// <summary>队列里有启用任务且当前空闲。</summary>
     public bool CanStartRun => !IsBusy && Queue.Any(q => q.IsEnabled);
 
     /// <summary>运行状态文案（界面右上角）。</summary>
-    public string RunStateText => _executor?.State switch
+    public string RunStateText => _runner?.State switch
     {
         ExecutionState.Running => "运行中",
         ExecutionState.Stopping => "停止中",
@@ -639,49 +641,34 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        MaaYysEngine? engine = _workspace?.Current?.Engine;
-        if (engine is null)
+        if (_runner is null)
         {
-            Message = "当前实例未连接：请先在实例页连接设备";
+            Message = "执行入口不可用（未加载工作区）";
             return;
         }
 
-        if (!engine.Ready)
+        TaskConfiguration? group = CurrentGroup();
+        if (group is null)
         {
-            Message = "引擎未就绪：请先连接设备并完成资源加载";
-            return;
-        }
-
-        List<ExecutionItem> items = BuildExecutionItems();
-        if (items.Count == 0)
-        {
-            Message = "队列为空：先添加任务";
-            return;
-        }
-
-        int enabled = items.Count(i => i.Enabled);
-        if (enabled == 0)
-        {
-            Message = "队列里没有启用的任务";
+            Message = "没有可用的配置组：请先新建一个";
             return;
         }
 
         ResetRunStatuses();
-        QueueExecutor executor = EnsureExecutor(engine);
-        _isBusyNow = true;
 
         try
         {
+            int enabled = _runner.BuildItems(group).Count(i => i.Enabled);
             Message = startIndex == 0
                 ? $"开始执行队列（{enabled} 项启用）"
                 : $"从第 {startIndex + 1} 项开始执行";
 
-            await HandleSummaryAsync(executor.RunAsync(items, Math.Clamp(startIndex, 0, items.Count)));
+            await HandleSummaryAsync(_runner.RunAsync(group, startIndex));
         }
         catch (InvalidOperationException ex)
         {
             Message = ex.Message;
-            _isBusyNow = false;
+            RaiseRunStates();
         }
     }
 
@@ -700,19 +687,13 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            _isBusyNow = false;
             RaiseRunStates();
         }
     }
 
     private void StopRun()
     {
-        if (_executor is null)
-        {
-            return;
-        }
-
-        if (_executor.Stop())
+        if (_runner?.Stop() == true)
         {
             Message = "正在停止…";
         }
@@ -720,14 +701,14 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
     private void TogglePause()
     {
-        if (_executor is null)
+        if (_runner is null)
         {
             return;
         }
 
-        if (_executor.State == ExecutionState.Running)
+        if (_runner.State == ExecutionState.Running)
         {
-            if (_executor.Pause())
+            if (_runner.Pause())
             {
                 Message = "正在暂停…";
             }
@@ -735,28 +716,14 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        if (_executor.State == ExecutionState.Paused)
+        if (_runner.State == ExecutionState.Paused)
         {
-            Task<ExecutionSummary>? resumed = _executor.Resume();
+            Task<ExecutionSummary>? resumed = _runner.Resume();
             if (resumed is not null)
             {
-                _isBusyNow = true;
                 _ = HandleSummaryAsync(resumed);
             }
         }
-    }
-
-    /// <summary>把队列项编译成执行项（任务级选项 + 全局选项合并，与参数面板预览同一条路径）。</summary>
-    private List<ExecutionItem> BuildExecutionItems()
-    {
-        InterfaceConfig? config = _workspace?.Resources.Config;
-        if (config is null)
-        {
-            return [];
-        }
-
-        TaskConfiguration? group = CurrentGroup();
-        return ExecutionPlan.Build(config, Queue.Select(q => q.Selection), group?.GlobalOptions);
     }
 
     private void ResetRunStatuses()
@@ -765,38 +732,6 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         {
             item.Status = TaskRunStatus.None;
         }
-    }
-
-    /// <summary>取（或重建）执行器：引擎换了（切实例/重连）必须换宿主。</summary>
-    private QueueExecutor EnsureExecutor(MaaYysEngine engine)
-    {
-        if (_executor is not null && ReferenceEquals(_executorEngine, engine))
-        {
-            return _executor;
-        }
-
-        DisposeExecutor();
-        _executorEngine = engine;
-        _executorHost = new MaaEngineExecutionHost(engine);
-        _executor = new QueueExecutor(_executorHost, _executionOptions);
-        _executor.ItemStatusChanged += OnItemStatusChanged;
-        _executor.StateChanged += OnExecutorStateChanged;
-        return _executor;
-    }
-
-    private void DisposeExecutor()
-    {
-        if (_executor is not null)
-        {
-            _executor.ItemStatusChanged -= OnItemStatusChanged;
-            _executor.StateChanged -= OnExecutorStateChanged;
-            _executor.Dispose();
-            _executor = null;
-        }
-
-        _executorHost?.Dispose();
-        _executorHost = null;
-        _executorEngine = null;
     }
 
     private void OnItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e) => Post(() =>
@@ -1285,6 +1220,10 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        DisposeExecutor();
+        if (_runner is not null)
+        {
+            _runner.ItemStatusChanged -= OnItemStatusChanged;
+            _runner.StateChanged -= OnExecutorStateChanged;
+        }
     }
 }
