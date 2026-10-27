@@ -149,7 +149,7 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 
 **遗留**：MXU 的 `agent/` 仅含 `agent.exe` 无源码，游戏交互类动作坐标/流程按 param schema 重建，需真机微调。
 
-## P5 进度（**2/5**）
+## P5 进度（**3/5**）
 
 详见 [`docs/MaaYys-开发流程表.md`](docs/MaaYys-开发流程表.md) §6.2。
 
@@ -157,7 +157,7 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 |---|---|---|
 | 5.1 | 任务队列系统 | ✅ 完成（多实例唯一 Id / 拖拽重排 / 别名 / 启用禁用 / 运行态色条 / 右键「从此处运行」；`TaskConfigurationTests` 8 例） |
 | 5.2 | 选项系统 | ✅ 完成（全局级选项 MXU `setting` 扩展；`Compile` 全局层合并 + `CompileGlobal`；任务页「任务参数 / 全局选项」双页；190/190 测试） |
-| 5.3 | 任务执行引擎 | ⬜ 待开始（启动/停止/暂停、StallTimeout、重试、时长上限；`RunFromHere` 接线） |
+| 5.3 | 任务执行引擎 | ✅ 完成（`Engine/Execution/`：`QueueExecutor` 顺序投递 + 停止/暂停 + 重试 + 停滞超时 + 时长上限；`ExecutionPlan` 编译投递契约；任务页运行控制条；209/209 测试） |
 | 5.4 | 定时任务 | ⬜ 待开始 |
 | 5.5 | 日志系统 | ⬜ 待开始 |
 

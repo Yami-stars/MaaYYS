@@ -6,6 +6,7 @@ using System.Windows.Input;
 using MaaYys.App.Services;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
+using MaaYys.Engine.Execution;
 
 namespace MaaYys.App.ViewModels;
 
@@ -211,6 +212,15 @@ public sealed class GlobalOptionSectionViewModel : ViewModelBase
 public sealed class TasksViewModel : ViewModelBase, IDisposable
 {
     private readonly InstanceWorkspace? _workspace;
+    private readonly ExecutionOptions _executionOptions;
+    private readonly SynchronizationContext? _uiContext;
+
+    private QueueExecutor? _executor;
+    private MaaEngineExecutionHost? _executorHost;
+    private MaaYysEngine? _executorEngine;
+    private bool _isBusyNow;
+    private string _lastRunSummary = string.Empty;
+
     private bool _loading;
     private QueueItemViewModel? _selectedQueueItem;
 
@@ -219,13 +229,18 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     {
     }
 
-    public TasksViewModel(InstanceWorkspace? workspace)
+    public TasksViewModel(InstanceWorkspace? workspace, ExecutionOptions? executionOptions = null)
     {
         _workspace = workspace;
+        _executionOptions = executionOptions ?? ExecutionOptions.Default;
+        _uiContext = SynchronizationContext.Current;
 
         ResetTaskCommand = new RelayCommand(_ => ResetTaskOptions(), _ => SelectedQueueItem is not null && OptionRows.Count > 0);
         ResetAllCommand = new RelayCommand(_ => ResetAllOptions(), _ => Queue.Any(q => q.Options.Count > 0));
         AddTaskCommand = new RelayCommand(p => AddTaskToQueue((string)p!), _ => AvailableTasks.Any());
+        RunQueueCommand = new RelayCommand(_ => StartRun(), _ => CanStartRun);
+        StopRunCommand = new RelayCommand(_ => StopRun(), _ => IsBusy);
+        PauseResumeCommand = new RelayCommand(_ => TogglePause(), _ => IsBusy);
 
         if (workspace is not null && workspace.Resources.Config is not null)
         {
@@ -352,6 +367,39 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     public ICommand ResetTaskCommand { get; }
     public ICommand ResetAllCommand { get; }
     public ICommand AddTaskCommand { get; }
+
+    // ---- P5.3 运行态（供 XAML 绑定） ----
+
+    /// <summary>开始运行整个队列。</summary>
+    public ICommand RunQueueCommand { get; }
+
+    /// <summary>停止当前运行。</summary>
+    public ICommand StopRunCommand { get; }
+
+    /// <summary>暂停 / 继续（同一按钮）。</summary>
+    public ICommand PauseResumeCommand { get; }
+
+    /// <summary>执行器是否处于运行/暂停/停止中。</summary>
+    public bool IsBusy => _isBusyNow || _executor?.State is ExecutionState.Running or ExecutionState.Paused or ExecutionState.Stopping;
+
+    /// <summary>队列里有启用任务且当前空闲。</summary>
+    public bool CanStartRun => !IsBusy && Queue.Any(q => q.IsEnabled);
+
+    /// <summary>运行状态文案（界面右上角）。</summary>
+    public string RunStateText => _executor?.State switch
+    {
+        ExecutionState.Running => "运行中",
+        ExecutionState.Stopping => "停止中",
+        ExecutionState.Paused => "已暂停",
+        _ => "空闲",
+    };
+
+    /// <summary>上一轮执行的汇总（成功/失败/跳过计数）。</summary>
+    public string LastRunSummary
+    {
+        get => _lastRunSummary;
+        private set => SetProperty(ref _lastRunSummary, value);
+    }
 
     // ---- 加载 ----
 
@@ -536,16 +584,16 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         SaveGroup(group);
     }
 
-    /// <summary>右键「从此处运行」：P5.3 执行引擎接入点，当前仅置提示。</summary>
+    /// <summary>右键「从此处运行」：把该队列项作为起点投递执行引擎。</summary>
     private void RunFromHere(string id)
     {
-        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == id);
-        if (vm is null)
+        int index = Queue.ToList().FindIndex(q => q.Id == id);
+        if (index < 0)
         {
             return;
         }
 
-        Message = $"已请求从「{vm.DisplayName}」开始运行（执行引擎接入见 P5.3）";
+        _ = RunQueueAsync(index);
     }
 
     /// <summary>勾选状态变化：<see cref="TaskSelection.Enabled"/> 已由 QueueItem 直接写回，这里只落盘。</summary>
@@ -576,6 +624,224 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         {
             vm.Status = status;
         }
+    }
+
+    // ---- P5.3 执行引擎接线 ----
+
+    /// <summary>开始执行整个队列（从第一项）。</summary>
+    private void StartRun() => _ = RunQueueAsync(0);
+
+    private async Task RunQueueAsync(int startIndex)
+    {
+        if (IsBusy)
+        {
+            Message = "已有队列在运行，请先停止";
+            return;
+        }
+
+        MaaYysEngine? engine = _workspace?.Current?.Engine;
+        if (engine is null)
+        {
+            Message = "当前实例未连接：请先在实例页连接设备";
+            return;
+        }
+
+        if (!engine.Ready)
+        {
+            Message = "引擎未就绪：请先连接设备并完成资源加载";
+            return;
+        }
+
+        List<ExecutionItem> items = BuildExecutionItems();
+        if (items.Count == 0)
+        {
+            Message = "队列为空：先添加任务";
+            return;
+        }
+
+        int enabled = items.Count(i => i.Enabled);
+        if (enabled == 0)
+        {
+            Message = "队列里没有启用的任务";
+            return;
+        }
+
+        ResetRunStatuses();
+        QueueExecutor executor = EnsureExecutor(engine);
+        _isBusyNow = true;
+
+        try
+        {
+            Message = startIndex == 0
+                ? $"开始执行队列（{enabled} 项启用）"
+                : $"从第 {startIndex + 1} 项开始执行";
+
+            await HandleSummaryAsync(executor.RunAsync(items, Math.Clamp(startIndex, 0, items.Count)));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
+            _isBusyNow = false;
+        }
+    }
+
+    private async Task HandleSummaryAsync(Task<ExecutionSummary> task)
+    {
+        RaiseRunStates();
+        try
+        {
+            ExecutionSummary summary = await task.ConfigureAwait(true);
+            LastRunSummary = $"成功 {summary.Succeeded} · 失败 {summary.Failed} · 跳过 {summary.Skipped}";
+            Message = summary.Message ?? LastRunSummary;
+        }
+        catch (Exception ex)
+        {
+            Message = $"执行异常：{ex.Message}";
+        }
+        finally
+        {
+            _isBusyNow = false;
+            RaiseRunStates();
+        }
+    }
+
+    private void StopRun()
+    {
+        if (_executor is null)
+        {
+            return;
+        }
+
+        if (_executor.Stop())
+        {
+            Message = "正在停止…";
+        }
+    }
+
+    private void TogglePause()
+    {
+        if (_executor is null)
+        {
+            return;
+        }
+
+        if (_executor.State == ExecutionState.Running)
+        {
+            if (_executor.Pause())
+            {
+                Message = "正在暂停…";
+            }
+
+            return;
+        }
+
+        if (_executor.State == ExecutionState.Paused)
+        {
+            Task<ExecutionSummary>? resumed = _executor.Resume();
+            if (resumed is not null)
+            {
+                _isBusyNow = true;
+                _ = HandleSummaryAsync(resumed);
+            }
+        }
+    }
+
+    /// <summary>把队列项编译成执行项（任务级选项 + 全局选项合并，与参数面板预览同一条路径）。</summary>
+    private List<ExecutionItem> BuildExecutionItems()
+    {
+        InterfaceConfig? config = _workspace?.Resources.Config;
+        if (config is null)
+        {
+            return [];
+        }
+
+        TaskConfiguration? group = CurrentGroup();
+        return ExecutionPlan.Build(config, Queue.Select(q => q.Selection), group?.GlobalOptions);
+    }
+
+    private void ResetRunStatuses()
+    {
+        foreach (QueueItemViewModel item in Queue)
+        {
+            item.Status = TaskRunStatus.None;
+        }
+    }
+
+    /// <summary>取（或重建）执行器：引擎换了（切实例/重连）必须换宿主。</summary>
+    private QueueExecutor EnsureExecutor(MaaYysEngine engine)
+    {
+        if (_executor is not null && ReferenceEquals(_executorEngine, engine))
+        {
+            return _executor;
+        }
+
+        DisposeExecutor();
+        _executorEngine = engine;
+        _executorHost = new MaaEngineExecutionHost(engine);
+        _executor = new QueueExecutor(_executorHost, _executionOptions);
+        _executor.ItemStatusChanged += OnItemStatusChanged;
+        _executor.StateChanged += OnExecutorStateChanged;
+        return _executor;
+    }
+
+    private void DisposeExecutor()
+    {
+        if (_executor is not null)
+        {
+            _executor.ItemStatusChanged -= OnItemStatusChanged;
+            _executor.StateChanged -= OnExecutorStateChanged;
+            _executor.Dispose();
+            _executor = null;
+        }
+
+        _executorHost?.Dispose();
+        _executorHost = null;
+        _executorEngine = null;
+    }
+
+    private void OnItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e) => Post(() =>
+    {
+        QueueItemViewModel? vm = Queue.FirstOrDefault(q => q.Id == e.Item.Id);
+        if (vm is null)
+        {
+            return;
+        }
+
+        vm.Status = e.Status;
+
+        if (e.Status is TaskRunStatus.Running or TaskRunStatus.Done or TaskRunStatus.Failed or TaskRunStatus.Stopped)
+        {
+            Message = e.Message is null ? e.Item.DisplayName : $"{e.Item.DisplayName}：{e.Message}";
+        }
+
+        if (e.Status is TaskRunStatus.Done or TaskRunStatus.Failed)
+        {
+            OnPropertyChanged(nameof(TaskSummary));
+        }
+    });
+
+    private void OnExecutorStateChanged(object? sender, ExecutionState state) => Post(RaiseRunStates);
+
+    /// <summary>执行事件来自引擎线程，统一切回 UI 线程。</summary>
+    private void Post(Action action)
+    {
+        if (_uiContext is null || SynchronizationContext.Current == _uiContext)
+        {
+            action();
+            return;
+        }
+
+        _uiContext.Post(_ => action(), null);
+    }
+
+    private void RaiseRunStates()
+    {
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(CanStartRun));
+        OnPropertyChanged(nameof(RunStateText));
+        (RunQueueCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (StopRunCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (PauseResumeCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     /// <summary>
@@ -1019,6 +1285,6 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        // 任务页没有订阅外部事件，无需额外释放
+        DisposeExecutor();
     }
 }

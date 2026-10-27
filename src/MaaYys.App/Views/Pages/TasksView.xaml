@@ -268,6 +268,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -299,10 +300,34 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Grid.Row="2" Style="{StaticResource HintText}" Margin="0,0,0,6"
+                <!-- 运行控制（P5.3 执行引擎） -->
+                <Border Grid.Row="2" Margin="0,0,0,8" Padding="8,6" CornerRadius="6"
+                        Background="{DynamicResource NavBackgroundBrush}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="开始运行" Height="28" Padding="12,0" Margin="0,0,6,0"
+                                Command="{Binding RunQueueCommand}"
+                                ToolTip="按队列顺序执行所有启用的任务" />
+                        <Button Grid.Column="1" Content="暂停/继续" Height="28" Padding="12,0" Margin="0,0,6,0"
+                                Command="{Binding PauseResumeCommand}"
+                                ToolTip="暂停会中止当前任务，继续时从该任务重新开始" />
+                        <Button Grid.Column="2" Content="停止" Height="28" Padding="12,0"
+                                Command="{Binding StopRunCommand}" />
+                        <TextBlock Grid.Column="3" Text="{Binding RunStateText}" FontSize="11"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                    </Grid>
+                </Border>
+
+                <TextBlock Grid.Row="3" Style="{StaticResource HintText}" Margin="0,0,0,6"
                            Text="拖拽排序；双击或右键「重命名」改名；右键可「从此处运行」。" />
 
-                <ListBox Grid.Row="3" x:Name="QueueList"
+                <ListBox Grid.Row="4" x:Name="QueueList"
                          ItemsSource="{Binding Queue}"
                          SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
                          ItemTemplate="{StaticResource QueueItemTemplate}"
@@ -315,7 +340,7 @@
                          Background="Transparent" BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
 
-                <TextBlock Grid.Row="4" Style="{StaticResource HintText}" Margin="0,6,0,0"
+                <TextBlock Grid.Row="5" Style="{StaticResource HintText}" Margin="0,6,0,0"
                            Text="{Binding CatalogHint}" />
             </Grid>
         </Border>
