@@ -32,6 +32,12 @@ public sealed class MaaAgentSession : IDisposable
     /// <summary>TCP 端口（agent 以此作为 identifier 连回本进程）。</summary>
     public int Port => _port;
 
+    /// <summary>
+    /// agent 子进程输出（P5.5 日志合并）：stdout/stderr 逐行转发。
+    /// 来自 .NET 的异步读管道线程，订阅方需自行保证线程安全；异常会被吞掉，不影响读取线程。
+    /// </summary>
+    public event EventHandler<AgentOutputEventArgs>? OutputReceived;
+
     /// <summary>agent 注册的自定义动作名（握手后可用；失败返回空）。</summary>
     public string[] ActionNames => _client?.CustomActionList() ?? [];
 
@@ -71,8 +77,9 @@ public sealed class MaaAgentSession : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(exe),
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
+                // P5.5：合并 agent 日志到运行日志。用异步事件读，不会因管道写满而阻塞子进程。
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
             };
 
             Process? proc = null;
@@ -106,7 +113,23 @@ public sealed class MaaAgentSession : IDisposable
                 return null;
             }
 
-            return new MaaAgentSession(proc, client, port);
+            var session = new MaaAgentSession(proc, client, port);
+
+            // 握手成功后再开始读管道：之前产生的输出仍留在系统管道里，稍后一并读出，
+            // 于是 agent 启动阶段的日志也不会丢。
+            try
+            {
+                proc.OutputDataReceived += session.OnStandardOutput;
+                proc.ErrorDataReceived += session.OnStandardError;
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+            }
+            catch
+            {
+                // 输出重定向失败不影响已建立的会话（只是没有 agent 日志）
+            }
+
+            return session;
         }
         catch
         {
@@ -123,6 +146,20 @@ public sealed class MaaAgentSession : IDisposable
         }
 
         _disposed = true;
+
+        try
+        {
+            if (_process is not null)
+            {
+                _process.OutputDataReceived -= OnStandardOutput;
+                _process.ErrorDataReceived -= OnStandardError;
+            }
+        }
+        catch
+        {
+            // 忽略退订异常（进程可能已退出）
+        }
+
         try
         {
             _client?.Disconnect();
@@ -142,6 +179,28 @@ public sealed class MaaAgentSession : IDisposable
         }
 
         TryKill(_process);
+    }
+
+    private void OnStandardOutput(object? sender, DataReceivedEventArgs e) => Raise(e.Data, false);
+
+    private void OnStandardError(object? sender, DataReceivedEventArgs e) => Raise(e.Data, true);
+
+    /// <summary>转发一行输出（空行丢弃、订阅方异常隔离、释放后不再转发）。</summary>
+    private void Raise(string? line, bool isError)
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        try
+        {
+            OutputReceived?.Invoke(this, new AgentOutputEventArgs(line, isError));
+        }
+        catch
+        {
+            // 读管道线程不能被订阅方异常打断，否则后续日志全部丢失
+        }
     }
 
     private static string? ResolveAgentExec(string? configured)
@@ -250,4 +309,14 @@ public sealed class AgentStartOptions
 
     /// <summary>与 agent 握手超时（毫秒）。</summary>
     public int ConnectTimeoutMs { get; init; } = 20_000;
+}
+
+/// <summary>agent 子进程的一行输出（P5.5）。</summary>
+/// <param name="Line">原始行（已去掉行尾换行）。</param>
+/// <param name="IsError">是否来自 stderr。</param>
+public sealed class AgentOutputEventArgs(string line, bool isError) : EventArgs
+{
+    public string Line { get; } = line;
+
+    public bool IsError { get; } = isError;
 }

@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using MaaYys.App.ViewModels;
 using MaaYys.Engine.Config;
+using MaaYys.Engine.Logging;
 
 namespace MaaYys.App.Services;
 
@@ -40,6 +41,11 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         string? resolvedInterface = interfacePath ?? LocateInterfaceJson();
         Catalog = InstanceCatalog.Load(resolvedInterface);
         Resources = ResourceProvider.Load(resolvedInterface);
+
+        // P5.5：日志缓冲（策略复用配置文件里的 log 段），必须在建实例之前就绪
+        Log = new LogBuffer(Configurations.LogOptions);
+        Log.Write(LogLevel.Info, "System", $"日志已启动（容量 {Configurations.LogOptions.Capacity} 条，时间格式 {Configurations.LogOptions.TimeFormat}）", "lifecycle");
+
         Store.Changed += (_, _) => SyncFromStore();
         SyncFromStore();
 
@@ -47,6 +53,12 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         Runner = new QueueRunService(this);
         Timers = new TimerRunner(this);
     }
+
+    /// <summary>
+    /// 运行日志（P5.5）：全程序共用一份环形缓冲，各实例的引擎通过
+    /// <see cref="ScopedLogSink"/> 打上实例名后写入同一条流，日志页可按来源/实例/级别过滤。
+    /// </summary>
+    public LogBuffer Log { get; }
 
     /// <summary>配置组（P2.6：命名任务配置，可被多个实例共用）。</summary>
     public ConfigurationStore Configurations { get; }
@@ -223,7 +235,7 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
                 InstanceViewModel? existing = Instances.FirstOrDefault(vm => vm.Id == definition.Id);
                 if (existing is null)
                 {
-                    existing = new InstanceViewModel(definition, Store, _uiContext, Resources);
+                    existing = new InstanceViewModel(definition, Store, _uiContext, Resources, Log);
                     InstallListener(existing);
                     Instances.Insert(Math.Min(index, Instances.Count), existing);
                 }

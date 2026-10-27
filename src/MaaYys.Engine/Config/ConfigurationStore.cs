@@ -40,6 +40,7 @@ public sealed class ConfigurationStore
     private readonly object _gate = new();
     private readonly List<TaskConfiguration> _ordered = [];
     private readonly List<Scheduling.TimerEntry> _timers = [];
+    private readonly Logging.LogOptions _logOptions = new();
 
     public ConfigurationStore(string? path = null)
     {
@@ -93,6 +94,22 @@ public sealed class ConfigurationStore
             lock (_gate)
             {
                 return _timers.Select(t => t.Clone()).ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 日志策略（P5.5）：与配置组同级存放。
+    /// 返回的是**同一个实例**（不是副本）——引擎日志管线持有它，改完立即对写入端生效；
+    /// 改动请走 <see cref="UpdateLogOptions"/>（负责夹取、落盘、广播）。
+    /// </summary>
+    public Logging.LogOptions LogOptions
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _logOptions;
             }
         }
     }
@@ -155,6 +172,7 @@ public sealed class ConfigurationStore
 
                     Adopt(document.Configurations);
                     AdoptTimers(document.Timers);
+                    AdoptLogOptions(document.Log);
                     Current = document.Current is { } current && FindCore(current) is not null
                         ? current
                         : _ordered.FirstOrDefault()?.Name;
@@ -190,6 +208,22 @@ public sealed class ConfigurationStore
     {
         lock (_gate)
         {
+            SaveCore();
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 更新日志策略（P5.5）：原地覆盖 + 夹取 + 落盘。不换对象，引擎日志管线无需重连。
+    /// </summary>
+    public void UpdateLogOptions(Logging.LogOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        lock (_gate)
+        {
+            _logOptions.CopyFrom(options).Sanitized();
             SaveCore();
         }
 
@@ -879,13 +913,29 @@ public sealed class ConfigurationStore
         }
     }
 
+    /// <summary>采纳日志策略（P5.5）：缺省段或非法值都回落到默认，不阻断加载。</summary>
+    private void AdoptLogOptions(Logging.LogOptions? options)
+    {
+        if (options is not null)
+        {
+            _logOptions.CopyFrom(options);
+        }
+
+        string? before = _logOptions.TimeFormat;
+        _logOptions.Sanitized();
+        if (options is not null && !string.Equals(before, _logOptions.TimeFormat, StringComparison.Ordinal))
+        {
+            LoadErrors.Add($"日志时间格式「{before}」非法，已回退为 {Logging.LogOptions.DefaultTimeFormat}");
+        }
+    }
+
     /// <summary>原子写：tmp → Move(overwrite)，上一版留 .bak。</summary>
     private void SaveCore()
     {
         string directory = System.IO.Path.GetDirectoryName(Path)!;
         Directory.CreateDirectory(directory);
 
-        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current, _timers), SerializerOptions);
+        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current, _timers, _logOptions), SerializerOptions);
         string temp = Path + ".tmp";
         File.WriteAllText(temp, json, new UTF8Encoding(false));
 
@@ -922,7 +972,8 @@ public sealed class ConfigurationStore
     private static Document ToDocument(
         IEnumerable<TaskConfiguration> groups,
         string? current,
-        IReadOnlyList<Scheduling.TimerEntry>? timers = null)
+        IReadOnlyList<Scheduling.TimerEntry>? timers = null,
+        Logging.LogOptions? logOptions = null)
     {
         var document = new Document
         {
@@ -939,6 +990,8 @@ public sealed class ConfigurationStore
         {
             document.Timers = timers.Select(t => t.Clone()).ToList();
         }
+
+        document.Log = logOptions?.Clone();
 
         return document;
     }
@@ -1134,6 +1187,10 @@ public sealed class ConfigurationStore
         /// <summary>定时计划（P5.4）：与配置组同级，跨组共享。</summary>
         [JsonPropertyName("timers")]
         public List<Scheduling.TimerEntry>? Timers { get; set; }
+
+        /// <summary>日志策略（P5.5）：与配置组同级，跨组共享。</summary>
+        [JsonPropertyName("log")]
+        public Logging.LogOptions? Log { get; set; }
     }
 
     /// <summary>

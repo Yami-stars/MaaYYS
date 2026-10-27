@@ -1,5 +1,6 @@
 using MaaYys.Engine.Agent;
 using MaaYys.Engine.Devices;
+using MaaYys.Engine.Logging;
 using MaaYys.Engine.Native;
 using MaaYys.Engine.Resources;
 using MaaYys.Engine.Session;
@@ -245,6 +246,12 @@ public sealed class MaaYysEngine : IDisposable
     public IObservable<TaskStateChangedEventArgs> TaskStateChanges => _taskStates;
 
     /// <summary>
+    /// 日志管线（P5.5）：由应用层注入（sink 带实例名 + 截图来源）。
+    /// 为 null 时引擎不产生任何日志开销（探针/测试默认即此状态）。
+    /// </summary>
+    public EngineLogPipeline? Log { get; set; }
+
+    /// <summary>
     /// 会话是否已连接。语义为「引擎已完成 ConnectAsync 且底层控制器自报已连接」，
     /// 而不是直接读底层状态——空控制器的 connected 回调恒真，直接读会误报未连接即已连接。
     /// </summary>
@@ -317,16 +324,19 @@ public sealed class MaaYysEngine : IDisposable
 
         if (status != MaaStatus.Succeeded)
         {
+            Log?.Error("Engine", $"控制器连接失败（{status}）", "connect", ConnectDiagnostic);
             return new EngineConnectResult(false, status, null, ConnectDiagnostic, $"控制器连接失败（{status}）");
         }
 
         if (!_tasker.BindResource(_resource))
         {
+            Log?.Error("Engine", "BindResource 失败（任务器无法绑定资源）", "connect");
             return new EngineConnectResult(false, MaaStatus.Failed, Uuid, ConnectDiagnostic, "BindResource 失败");
         }
 
         if (!_tasker.BindController(ControllerHandle))
         {
+            Log?.Error("Engine", "BindController 失败（任务器无法绑定控制器）", "connect");
             return new EngineConnectResult(false, MaaStatus.Failed, Uuid, ConnectDiagnostic, "BindController 失败");
         }
 
@@ -334,6 +344,12 @@ public sealed class MaaYysEngine : IDisposable
         {
             _connected = _tasker.Inited;
         }
+
+        Log?.Info(
+            "Engine",
+            _connected ? $"控制器已连接：{Controller} · {Uuid ?? "无 uuid"}" : "控制器已连接，但任务器未就绪",
+            "connect",
+            ConnectDiagnostic);
 
         // P4.1：连接成功后拉起 agent 子进程，把自定义动作/识别能力挂到当前资源上。
         // 空控制器（干跑/测试）不拉起；其余失败降级为「无 agent」，主流程不受影响。
@@ -343,11 +359,19 @@ public sealed class MaaYysEngine : IDisposable
             if (_agentSession is null)
             {
                 Console.Error.WriteLine("[engine] agent 子进程启动失败，自定义动作/识别将不可用（已降级）");
+                Log?.Warn("Engine", "agent 子进程启动失败：自定义动作/识别不可用（已降级）", "agent");
             }
             else
             {
                 Console.WriteLine(
                     $"[engine] agent 已连接：{_agentSession.ActionNames.Length} 动作 / {_agentSession.RecognitionNames.Length} 识别 @port {_agentSession.Port}");
+                Log?.Info(
+                    "Engine",
+                    $"agent 已连接：{_agentSession.ActionNames.Length} 动作 / {_agentSession.RecognitionNames.Length} 识别 @port {_agentSession.Port}",
+                    "agent");
+
+                // P5.5：合并 agent 子进程输出（stdout/stderr → 日志面板）
+                _agentSession.OutputReceived += OnAgentOutput;
             }
         }
 
@@ -459,6 +483,7 @@ public sealed class MaaYysEngine : IDisposable
         catch (Exception ex)
         {
             fresh.Dispose();
+            Log?.Error("Engine", $"资源链加载失败：{ex.Message}", "resource", ex.Message);
             return new ResourceLoadResult(false, ex.Message, loaded);
         }
 
@@ -489,6 +514,7 @@ public sealed class MaaYysEngine : IDisposable
         }
 
         previous.Dispose();
+        Log?.Info("Engine", $"资源链加载完成：{loaded.Count} 个包", "resource");
         return new ResourceLoadResult(true, null, loaded);
     }
 
@@ -560,6 +586,7 @@ public sealed class MaaYysEngine : IDisposable
             }
 
             Tasks.MarkStopped("用户停止");
+            Log?.Info("Engine", "已请求停止当前任务", "control");
             return true;
         }
         catch
@@ -623,10 +650,18 @@ public sealed class MaaYysEngine : IDisposable
             Tasks.ApplyEvent(e.Message, e.DetailsJson);
         }
 
+        Log?.Framework(e.Message, e.DetailsJson);
         Publish(_events, e);
     }
 
-    private void OnResourceEvent(object? sender, MaaFrameworkEventArgs e) => Publish(_events, e);
+    private void OnResourceEvent(object? sender, MaaFrameworkEventArgs e)
+    {
+        Log?.Framework(e.Message, e.DetailsJson);
+        Publish(_events, e);
+    }
+
+    /// <summary>agent 子进程输出 → 日志（P5.5「agent 日志合并」）。</summary>
+    private void OnAgentOutput(object? sender, AgentOutputEventArgs e) => Log?.Agent(e.Line, e.IsError);
 
     /// <summary>事件派发：优先回到构造时的 SynchronizationContext（WPF UI 线程）。</summary>
     private void Publish<T>(EventStream<T> stream, T value)
@@ -658,9 +693,15 @@ public sealed class MaaYysEngine : IDisposable
 
         try
         {
+            Log?.Info("Engine", "引擎释放", "lifecycle");
             Tasks.MarkStopped("引擎释放");
             _tasker.EventReceived -= OnTaskerEvent;
             _resource.EventReceived -= OnResourceEvent;
+
+            if (_agentSession is not null)
+            {
+                _agentSession.OutputReceived -= OnAgentOutput;
+            }
 
             _tasker.Dispose();
             _win32Controller?.Dispose();

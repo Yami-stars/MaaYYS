@@ -92,6 +92,14 @@ internal static class ProbeAgent
         {
             Console.WriteLine($"    Connected={session.Connected} Alive={session.Alive} Port={session.Port}");
 
+            // P5.5：验证 agent 子进程输出能被捕获（GUI 里这些行会进运行日志）
+            var agentLines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            session.OutputReceived += (_, e) =>
+            {
+                agentLines.Enqueue($"[agent:{(e.IsError ? "err" : "out")}] {e.Line}");
+                Console.WriteLine($"    [agent:{(e.IsError ? "err" : "out")}] {e.Line}");
+            };
+
             string[] actions = session.ActionNames;
             string[] recognitions = session.RecognitionNames;
             Console.WriteLine($"[3] 自定义动作 ({actions.Length}): [{string.Join(", ", actions)}]");
@@ -145,6 +153,8 @@ internal static class ProbeAgent
                 Console.Error.WriteLine("    任务未成功（RandomWait 可能未被执行）");
                 return 1;
             }
+
+            Console.WriteLine($"[5] agent 日志捕获：{agentLines.Count} 行（stdout/stderr 已并入运行日志）");
         }
 
         Console.WriteLine("=== P4 验证完成：agent 链路闭环（注册 + 执行）通过 ===");

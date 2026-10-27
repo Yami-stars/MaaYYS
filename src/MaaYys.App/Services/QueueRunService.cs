@@ -2,6 +2,7 @@ using MaaYys.App.ViewModels;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
 using MaaYys.Engine.Execution;
+using MaaYys.Engine.Logging;
 
 namespace MaaYys.App.Services;
 
@@ -97,6 +98,13 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         _starting = true;
         OnPropertyChanged(nameof(IsBusy));
 
+        _workspace.Log.Write(
+            LogLevel.Info,
+            "Runner",
+            $"开始执行配置组「{group.Name}」：{items.Count(i => i.Enabled)} 项启用 / 共 {items.Count} 项"
+                + (startIndex > 0 ? $"，从第 {startIndex + 1} 项开始" : string.Empty),
+            "queue");
+
         Task<ExecutionSummary> task;
         try
         {
@@ -108,6 +116,12 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(IsBusy));
             throw;
         }
+
+        _ = task.ContinueWith(
+            t => LogSummary(group, t),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
         _ = task.ContinueWith(
             _ =>
@@ -164,10 +178,78 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
     }
 
     private void OnItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e)
-        => ItemStatusChanged?.Invoke(this, e);
+    {
+        LogItem(e);
+        ItemStatusChanged?.Invoke(this, e);
+    }
+
+    /// <summary>队列项的运行态变化 → 日志（P5.5：失败/跳过会自动带截图卡片）。</summary>
+    private void LogItem(QueueItemStatusChangedEventArgs e)
+    {
+        string name = string.IsNullOrWhiteSpace(e.Item.DisplayName) ? e.Item.Entry : e.Item.DisplayName;
+        string duration = e.Run?.Duration is { } span ? $"（{span.TotalSeconds:F1}s）" : string.Empty;
+
+        switch (e.Status)
+        {
+            case TaskRunStatus.Running:
+                _workspace.Log.Debug("Runner", $"开始执行：{name}", "queue");
+                break;
+            case TaskRunStatus.Done:
+                _workspace.Log.Info("Runner", $"完成：{name}{duration}", "queue");
+                break;
+            case TaskRunStatus.Failed:
+                _workspace.Log.Error(
+                    "Runner",
+                    $"失败：{name}{duration}{(string.IsNullOrWhiteSpace(e.Message) ? string.Empty : $" · {e.Message}")}",
+                    "queue");
+                break;
+            case TaskRunStatus.Skipped:
+                _workspace.Log.Warn(
+                    "Runner",
+                    $"跳过：{name}{(string.IsNullOrWhiteSpace(e.Message) ? string.Empty : $" · {e.Message}")}",
+                    "queue");
+                break;
+            case TaskRunStatus.Stopped:
+                _workspace.Log.Warn("Runner", $"已停止：{name}", "queue");
+                break;
+        }
+    }
+
+    /// <summary>整轮汇总（成功/失败/跳过 + 结束原因）。</summary>
+    private void LogSummary(TaskConfiguration group, Task<ExecutionSummary> task)
+    {
+        try
+        {
+            ExecutionSummary summary = task.Result;
+            LogLevel level = summary.Failed > 0 ? LogLevel.Warn : LogLevel.Info;
+            _workspace.Log.Write(
+                level,
+                "Runner",
+                $"配置组「{group.Name}」结束：{summary.Outcome} · 成功 {summary.Succeeded} · 失败 {summary.Failed} · 跳过 {summary.Skipped}"
+                    + (string.IsNullOrWhiteSpace(summary.Message) ? string.Empty : $" · {summary.Message}"),
+                "queue");
+        }
+        catch (AggregateException ex)
+        {
+            _workspace.Log.Error("Runner", $"配置组「{group.Name}」执行异常：{ex.InnerException?.Message ?? ex.Message}", "queue");
+        }
+    }
 
     private void OnExecutorStateChanged(object? sender, ExecutionState state)
     {
+        switch (state)
+        {
+            case ExecutionState.Paused:
+                _workspace.Log.Warn("Runner", "队列已暂停（继续时从当前任务重跑）", "queue");
+                break;
+            case ExecutionState.Stopping:
+                _workspace.Log.Info("Runner", "正在停止队列…", "queue");
+                break;
+            case ExecutionState.Idle:
+                _workspace.Log.Debug("Runner", "队列回到空闲", "queue");
+                break;
+        }
+
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(IsBusy));
         StateChanged?.Invoke(this, state);

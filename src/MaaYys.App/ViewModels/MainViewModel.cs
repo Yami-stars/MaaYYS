@@ -81,6 +81,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         NavigationItems.Add(new NavigationItem { Name = "首页", Glyph = "⌂", PageFactory = () => new HomeViewModel() });
         NavigationItems.Add(new NavigationItem { Name = "任务", Glyph = "≡", PageFactory = () => new TasksViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "定时", Glyph = "⏱", PageFactory = () => new TimersViewModel(_workspace) });
+        NavigationItems.Add(new NavigationItem { Name = "日志", Glyph = "☰", PageFactory = () => new LogsViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionViewModel() });
         NavigationItems.Add(new NavigationItem { Name = "实例", Glyph = "❐", PageFactory = () => new InstancesViewModel(_workspace) });
         NavigationItems.Add(new NavigationItem { Name = "设置", Glyph = "⚙", PageFactory = () => new SettingsViewModel(_workspace) });

@@ -1,5 +1,6 @@
 using MaaYys.Engine.Config;
 using MaaYys.Engine.Execution;
+using MaaYys.Engine.Logging;
 using MaaYys.Engine.Scheduling;
 
 namespace MaaYys.App.Services;
@@ -148,6 +149,13 @@ public sealed class TimerRunner : IDisposable
     private void Report(TimerEntry entry, string message, bool fired)
     {
         LastMessage = message;
+
+        // P5.5：定时触发结果同时进运行日志（跳过/失败一眼可见）
+        LogLevel level = message.Contains("失败", StringComparison.Ordinal)
+            ? LogLevel.Error
+            : fired ? LogLevel.Info : LogLevel.Warn;
+        _workspace.Log.Write(level, "Timer", message, "timer", $"id={entry.Id}");
+
         Post(() => Reported?.Invoke(this, new TimerRunEventArgs(entry, message, fired)));
     }
 

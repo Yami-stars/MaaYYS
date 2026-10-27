@@ -7,6 +7,7 @@ using MaaYys.App.Services;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
 using MaaYys.Engine.Devices;
+using MaaYys.Engine.Logging;
 using MaaYys.Engine.Resources;
 using MaaYys.Engine.Session;
 
@@ -32,6 +33,8 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
     private readonly InstanceStore _store;
     private readonly ResourceProvider? _resources;
     private readonly SynchronizationContext _uiContext;
+    private readonly ILogSink? _logSink;
+    private readonly LogOptions? _logOptions;
     private MaaYysEngine? _engine;
     private FramePump? _pump;
     private PreviewBitmap? _preview;
@@ -39,6 +42,9 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
     private string? _leasedKey;
     private bool _isActive;
     private bool _disposed;
+
+    /// <summary>最近一帧（P5.5 截图卡片来源）：只在帧回调里换引用，错误日志需要时才做缩放。</summary>
+    private FrameData? _latestFrame;
 
     /// <summary>已连接的游戏窗口句柄：用于运行期巡检「幽灵化」（见 GameWindowVisibility）。</summary>
     private IntPtr _windowHandle;
@@ -49,12 +55,16 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         InstanceDefinition definition,
         InstanceStore store,
         SynchronizationContext uiContext,
-        ResourceProvider? resources = null)
+        ResourceProvider? resources = null,
+        ILogSink? log = null,
+        LogOptions? logOptions = null)
     {
         Definition = definition;
         _store = store;
         _uiContext = uiContext;
         _resources = resources;
+        _logSink = log;
+        _logOptions = logOptions;
 
         ConnectCommand = new RelayCommand(_ => _ = ConnectAsync(), _ => !IsBusy && State != InstanceState.Connected);
         DisconnectCommand = new RelayCommand(_ => Disconnect(), _ => State == InstanceState.Connected);
@@ -254,6 +264,16 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
 
             _engine = engine;
             Diagnostic = engine.ConnectDiagnostic;
+
+            // P5.5：日志管线（实例名打标签 + 最近一帧作为错误截图来源）
+            if (_logSink is not null)
+            {
+                LogOptions options = _logOptions ?? new LogOptions();
+                engine.Log = new EngineLogPipeline(
+                    new ScopedLogSink(_logSink, DisplayName),
+                    options,
+                    () => _latestFrame is null ? null : ThumbnailFactory.Create(_latestFrame, options.ThumbnailWidth));
+            }
 
             EngineConnectResult result = await engine.ConnectAsync().ConfigureAwait(true);
             if (!result.Success)
@@ -543,6 +563,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         {
             try
             {
+                _latestFrame = frame;
                 // 复用同一个 WriteableBitmap 原地写入：每帧新建 BitmapSource 会产生
                 // 2.7MB/帧 的 LOH 分配，最小化挂后台时实测把 CPU 打到 100%+（GC 抖动）。
                 WriteableBitmap bitmap = (_preview ??= new PreviewBitmap()).Update(frame);
@@ -572,6 +593,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         _frameSubscription = null;
         _pump?.Dispose();
         _pump = null;
+        _latestFrame = null;   // 停泵即断开引用，避免日志卡片拿到过期的旧帧
         ActualFps = 0;
     }
 

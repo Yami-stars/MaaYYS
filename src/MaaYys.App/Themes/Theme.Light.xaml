@@ -34,4 +34,10 @@
         </Style.Triggers>
     </Style>
 
+    <!-- CheckBox 的文字颜色：默认模板的 ContentPresenter 不继承窗口前景色，显式指定以保持两种主题一致。 -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
 </ResourceDictionary>

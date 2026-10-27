@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using MaaYys.Engine.Devices;
+using MaaYys.Engine.Logging;
 
 namespace MaaYys.App.Services;
 
@@ -18,6 +19,18 @@ public static class FrameBitmapConverter
 
         BitmapSource bitmap = BitmapSource.Create(
             frame.Width, frame.Height, 96, 96, ToPixelFormat(frame.Channels), null, frame.Pixels, frame.Stride);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    /// <summary>日志截图卡片（P5.5）：缩略图是同一套原始像素，只是更小。</summary>
+    public static BitmapSource ToBitmap(LogThumbnail thumbnail)
+    {
+        ArgumentNullException.ThrowIfNull(thumbnail);
+
+        BitmapSource bitmap = BitmapSource.Create(
+            thumbnail.Width, thumbnail.Height, 96, 96,
+            ToPixelFormat(thumbnail.Channels), null, thumbnail.Pixels, thumbnail.Stride);
         bitmap.Freeze();
         return bitmap;
     }
