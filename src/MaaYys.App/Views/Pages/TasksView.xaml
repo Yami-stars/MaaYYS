@@ -54,8 +54,13 @@
                           Visibility="{Binding IsSingleChoice, Converter={StaticResource BoolToVisibility}}">
                         <ComboBox Height="28" Width="240"
                                   ItemsSource="{Binding Choices}"
-                                  DisplayMemberPath="Label"
-                                  SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" />
+                                  SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                         <TextBlock Text="（未选择，按默认处理）" FontSize="11" Margin="9,0,0,0"
                                    VerticalAlignment="Center" IsHitTestVisible="False"
                                    Foreground="{DynamicResource ForegroundSecondaryBrush}">
@@ -239,8 +244,13 @@
                         <ComboBox Grid.Column="1" Height="30" Width="260" HorizontalAlignment="Left"
                                   ItemsSource="{Binding Instances}"
                                   SelectedItem="{Binding CurrentInstance, Mode=TwoWay}"
-                                  DisplayMemberPath="DisplayName"
-                                  ToolTip="任务投递到哪个实例（在「多实例」页管理）" />
+                                  ToolTip="任务投递到哪个实例（在「多实例」页管理）">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </Grid>
 
                     <Grid Margin="0,0,0,8">

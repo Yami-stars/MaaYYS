@@ -27,6 +27,27 @@ public sealed class ExecutionOptions
     /// <summary>默认策略：60s 停滞超时、不重试、失败即停、不限时长。</summary>
     public static ExecutionOptions Default { get; } = new();
 
+    /// <summary>
+    /// 从「运行设置」构造（P6.2）：设置页改完立即对下一次启动生效，
+    /// 不需要重连、不需要重启程序。
+    /// </summary>
+    public static ExecutionOptions FromRunSettings(Config.RunSettings? settings)
+    {
+        if (settings is null)
+        {
+            return Default;
+        }
+
+        return new ExecutionOptions
+        {
+            StallTimeoutSeconds = settings.StallTimeoutSeconds,
+            MaxDurationSeconds = settings.MaxDurationSeconds,
+            MaxRetries = settings.MaxRetries,
+            RetryDelayMs = settings.RetryDelayMs,
+            StopOnFailure = settings.StopOnFailure,
+        }.Sanitized();
+    }
+
     internal ExecutionOptions Sanitized() => new()
     {
         StallTimeoutSeconds = Math.Max(0, StallTimeoutSeconds),

@@ -19,6 +19,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<NavigationItem> NavigationItems { get; } = new();
 
+    /// <summary>工作区（应用设置、实例、日志的入口；App 启动时读自启设置要用）。</summary>
+    public InstanceWorkspace Workspace => _workspace;
+
     /// <summary>一键长草（原任务页）：左下 Link Start 与命令行调试都绑它，必须常驻。</summary>
     public TasksViewModel Tasks { get; }
 

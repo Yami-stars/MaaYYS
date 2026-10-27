@@ -21,6 +21,7 @@ public sealed class LogBuffer : ILogSink
     private long _dropped;
     private int _thumbCount;
     private long _version;
+    private ILogSink? _mirror;
 
     public LogBuffer(LogOptions? options = null)
     {
@@ -110,6 +111,20 @@ public sealed class LogBuffer : ILogSink
         }
     }
 
+    /// <summary>
+    /// 镜像落点（P6.2 文件日志）：写入本缓冲的条目同时转发一份给 <see cref="FileLogSink"/>。
+    /// <para>
+    /// 转发在锁外进行 —— 磁盘 IO 不能拖住其他写日志的线程；代价是并发写入时
+    /// 文件里的顺序可能与内存里的序号顺序略有出入（单线程顺序不受影响）。
+    /// 转发异常在这里吞掉：落盘失败绝不能反过来影响调用方。
+    /// </para>
+    /// </summary>
+    public ILogSink? Mirror
+    {
+        get => _mirror;
+        set => _mirror = ReferenceEquals(value, this) ? null : value;
+    }
+
     public void Write(LogEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -135,6 +150,18 @@ public sealed class LogBuffer : ILogSink
             _version++;
 
             Trim();
+        }
+
+        if (_mirror is { } mirror)
+        {
+            try
+            {
+                mirror.Write(entry);
+            }
+            catch
+            {
+                // 落盘失败只降级，不影响内存日志与调用方
+            }
         }
     }
 

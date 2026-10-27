@@ -119,8 +119,15 @@
                         <ComboBox Height="28" MinWidth="130" MaxWidth="200"
                                   ItemsSource="{Binding Instances}"
                                   SelectedItem="{Binding CurrentInstance, Mode=TwoWay}"
-                                  DisplayMemberPath="DisplayName"
-                                  ToolTip="当前实例（在「多实例」页管理）" />
+                                  ToolTip="当前实例（在「多实例」页管理）">
+                            <!-- 用 ItemTemplate 而不是 DisplayMemberPath：自定义模板下
+                                 SelectionBoxItemTemplate 只在有模板时才拿得到，否则会显示类名 -->
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </StackPanel>
 
                     <Button Content="{Binding ThemeLabel}" Width="60" Height="28" FontSize="12"

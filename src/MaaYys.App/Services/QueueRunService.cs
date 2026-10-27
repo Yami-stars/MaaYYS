@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
 using MaaYys.App.ViewModels;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
@@ -17,8 +20,19 @@ namespace MaaYys.App.Services;
 /// </summary>
 public sealed class QueueRunService : ViewModelBase, IDisposable
 {
+    /// <summary>脚本最长执行时间：卡住的脚本不能把整条队列拖死。</summary>
+    private static readonly TimeSpan ScriptTimeout = TimeSpan.FromMinutes(2);
+
     private readonly InstanceWorkspace _workspace;
-    private readonly ExecutionOptions _options;
+
+    /// <summary>固定策略（测试 / 特殊调用方用）；为 null 时每次运行都从「运行设置」取。</summary>
+    private readonly ExecutionOptions? _optionsOverride;
+
+    /// <summary>执行器策略签名：设置页改了策略，下次运行自动重建执行器。</summary>
+    private string? _executorSignature;
+
+    /// <summary>防休眠令牌（运行时持有，结束时释放）。</summary>
+    private IDisposable? _sleepToken;
 
     private QueueExecutor? _executor;
     private MaaEngineExecutionHost? _host;
@@ -30,7 +44,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
     {
         ArgumentNullException.ThrowIfNull(workspace);
         _workspace = workspace;
-        _options = options ?? ExecutionOptions.Default;
+        _optionsOverride = options;
     }
 
     /// <summary>队列项运行态变化（供任务页着色）。事件来自引擎线程，订阅方需自行切 UI 线程。</summary>
@@ -62,7 +76,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
     /// 开始执行一个配置组的队列。
     /// </summary>
     /// <exception cref="InvalidOperationException">引擎未就绪、队列为空，或已有队列在跑。</exception>
-    public Task<ExecutionSummary> RunAsync(TaskConfiguration group, int startIndex = 0)
+    public async Task<ExecutionSummary> RunAsync(TaskConfiguration group, int startIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(group);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -98,6 +112,18 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         _starting = true;
         OnPropertyChanged(nameof(IsBusy));
 
+        RunSettings run = _workspace.Configurations.Settings.Run;
+
+        // P6.2：执行期间阻止系统休眠（长跑最容易被「睡过去」打断）
+        if (run.PreventSleep && _sleepToken is null)
+        {
+            _sleepToken = SleepGuard.Acquire();
+            if (SleepGuard.IsActive)
+            {
+                _workspace.Log.Debug("Runner", "已阻止系统休眠（队列结束后自动恢复）", "queue");
+            }
+        }
+
         _workspace.Log.Write(
             LogLevel.Info,
             "Runner",
@@ -108,12 +134,15 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         Task<ExecutionSummary> task;
         try
         {
+            // P6.2：前置脚本（失败只记日志，不阻断任务）
+            await RunScriptAsync(run.PreScriptPath, "前置脚本").ConfigureAwait(true);
             task = executor.RunAsync(items, Math.Clamp(startIndex, 0, items.Count));
         }
         catch
         {
             _starting = false;
             OnPropertyChanged(nameof(IsBusy));
+            ReleaseSleepGuard();
             throw;
         }
 
@@ -133,7 +162,13 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        return task;
+        _ = task.ContinueWith(
+            t => FinishRun(run, t),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        return await task.ConfigureAwait(true);
     }
 
     /// <summary>停止整个队列。返回 false 表示当前没在跑。</summary>
@@ -148,15 +183,19 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
     /// <summary>取（或重建）执行器：引擎换了（切实例/重连）必须换宿主。</summary>
     private QueueExecutor EnsureExecutor(MaaYysEngine engine)
     {
-        if (_executor is not null && ReferenceEquals(_engine, engine))
+        ExecutionOptions options = _optionsOverride ?? ExecutionOptions.FromRunSettings(_workspace.Configurations.Settings.Run);
+        string signature = Signature(options);
+
+        if (_executor is not null && ReferenceEquals(_engine, engine) && string.Equals(signature, _executorSignature, StringComparison.Ordinal))
         {
             return _executor;
         }
 
         DisposeExecutor();
         _engine = engine;
+        _executorSignature = signature;
         _host = new MaaEngineExecutionHost(engine);
-        _executor = new QueueExecutor(_host, _options);
+        _executor = new QueueExecutor(_host, options);
         _executor.ItemStatusChanged += OnItemStatusChanged;
         _executor.StateChanged += OnExecutorStateChanged;
         return _executor;
@@ -175,6 +214,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         _host?.Dispose();
         _host = null;
         _engine = null;
+        _executorSignature = null;
     }
 
     private void OnItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e)
@@ -255,6 +295,162 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         StateChanged?.Invoke(this, state);
     }
 
+    // ---- P6.2 运行设置相关 ----
+
+    private static string Signature(ExecutionOptions options)
+        => $"{options.StallTimeoutSeconds}|{options.MaxRetries}|{options.RetryDelayMs}|{options.StopOnFailure}|{options.MaxDurationSeconds}";
+
+    private void ReleaseSleepGuard()
+    {
+        _sleepToken?.Dispose();
+        _sleepToken = null;
+    }
+
+    /// <summary>跑完一轮后的收尾：后置脚本 → 释放防休眠 → 完成后动作。</summary>
+    private void FinishRun(RunSettings run, Task<ExecutionSummary> task)
+    {
+        if (!string.IsNullOrWhiteSpace(run.PostScriptPath))
+        {
+            try
+            {
+                RunScriptAsync(run.PostScriptPath, "后置脚本").GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _workspace.Log.Error("Runner", $"后置脚本执行异常：{ex.Message}", "queue");
+            }
+        }
+
+        ReleaseSleepGuard();
+
+        ExecutionOutcome outcome;
+        try
+        {
+            outcome = task.Result.Outcome;
+        }
+        catch
+        {
+            return;   // 异常已由 LogSummary 记过，不触发动作
+        }
+
+        // 只有「正常跑完」才执行动作：失败 / 停止 / 暂停都不算
+        if (outcome == ExecutionOutcome.Completed && !string.Equals(run.AfterCompletion, "none", StringComparison.Ordinal))
+        {
+            ApplyAfterCompletion(run.AfterCompletion);
+        }
+    }
+
+    /// <summary>
+    /// 整轮正常跑完后执行「完成后动作」。停止 / 暂停是用户主动打断，不触发 ——
+    /// 否则按了停止反而退出程序。
+    /// </summary>
+    private void ApplyAfterCompletion(string kind)
+    {
+        _workspace.Log.Info("Runner", $"整轮完成：按设置执行完成后动作「{Describe(kind)}」", "queue");
+
+        void Dispatch(Action action)
+        {
+            Application? app = Application.Current;
+            if (app is null)
+            {
+                action();
+                return;
+            }
+
+            app.Dispatcher.BeginInvoke(action);
+        }
+
+        if (string.Equals(kind, "exit", StringComparison.Ordinal))
+        {
+            Dispatch(() => Application.Current?.Shutdown());
+            return;
+        }
+
+        if (string.Equals(kind, "shutdown", StringComparison.Ordinal))
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("shutdown", "/s /t 60")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                Process.Start(psi)?.Dispose();
+                _workspace.Log.Warn("Runner", "已发出关机命令：60 秒倒计时，取消请执行 shutdown /a", "queue");
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                _workspace.Log.Error("Runner", $"关机命令执行失败：{ex.Message}", "queue");
+            }
+        }
+    }
+
+    private static string Describe(string kind) => kind switch
+    {
+        "exit" => "退出程序",
+        "shutdown" => "关机",
+        _ => "无动作",
+    };
+
+    /// <summary>
+    /// 执行前后置脚本（.bat / .cmd / .exe）。失败与超时只记日志：
+    /// 用户脚本不该成为任务本身的阻断点。
+    /// </summary>
+    private async Task RunScriptAsync(string path, string label)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        string full = Environment.ExpandEnvironmentVariables(path.Trim());
+        if (!File.Exists(full))
+        {
+            _workspace.Log.Warn("Runner", $"{label}不存在，已跳过：{full}", "script");
+            return;
+        }
+
+        _workspace.Log.Info("Runner", $"开始执行{label}：{full}", "script");
+        (int exitCode, bool timedOut, string? error) = await Task.Run(() =>
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("cmd.exe", $"/c \"{full}\"")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WorkingDirectory = Path.GetDirectoryName(full) ?? string.Empty,
+                };
+
+                using Process? process = Process.Start(psi);
+                if (process is null)
+                {
+                    return (0, false, "进程未能启动");
+                }
+
+                bool exited = process.WaitForExit((int)ScriptTimeout.TotalMilliseconds);
+                return (exited ? process.ExitCode : 0, !exited, (string?)null);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+            {
+                return (0, false, ex.Message);
+            }
+        }).ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            _workspace.Log.Error("Runner", $"{label}启动失败：{error}", "script");
+        }
+        else if (timedOut)
+        {
+            _workspace.Log.Warn("Runner", $"{label}超过 {ScriptTimeout.TotalSeconds:F0} 秒未结束，已放弃等待", "script");
+        }
+        else
+        {
+            _workspace.Log.Info("Runner", $"{label}结束（退出码 {exitCode}）", "script");
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -263,6 +459,7 @@ public sealed class QueueRunService : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        ReleaseSleepGuard();
         DisposeExecutor();
     }
 }

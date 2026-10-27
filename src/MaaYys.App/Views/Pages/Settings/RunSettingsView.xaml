@@ -1,0 +1,169 @@
+<UserControl x:Class="MaaYys.App.Views.Pages.Settings.RunSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+        <StackPanel MaxWidth="900" HorizontalAlignment="Stretch">
+
+            <TextBlock Text="运行" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Style="{StaticResource SettingsHint}" Margin="0,0,0,12"
+                       Text="任务执行的策略参数。改动在「下一次启动队列」时生效：运行中的队列不会被中途改策略，否则「这次为什么没重试」就无从解释了。" />
+
+            <!-- ===== 执行策略 ===== -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource SettingsSectionTitle}" Text="任务执行策略" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="恢复默认" Width="86" Height="26"
+                                Command="{Binding ResetCommand}" />
+                    </Grid>
+
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="138" />
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="停滞超时（秒）" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,12,8"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding StallTimeoutSeconds}" />
+                        <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"
+                                   Text="这么久没有任何框架事件就判定卡死（0 = 不检测）。默认 60 秒" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="失败重试（次）" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,12,8"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding MaxRetries}" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"
+                                   Text="不含首次执行。停滞超时与超过时长上限的失败**不重试**（重试也只会再卡一次）" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="重试间隔（毫秒）" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Margin="0,0,12,8"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding RetryDelayMs}" />
+                        <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"
+                                   Text="两次尝试之间的等待，给游戏界面留出恢复时间" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="单任务上限（分钟）" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Margin="0,0,12,8"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding MaxDurationMinutes}" />
+                        <TextBlock Grid.Row="3" Grid.Column="2" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"
+                                   Text="0 = 不限。御魂这类会自己循环的任务建议给个上限（如 120），避免真的卡住却一直等" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="失败后" />
+                        <CheckBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                  Content="停止整个队列（不勾选 = 继续跑后续任务）"
+                                  IsChecked="{Binding StopOnFailure, Mode=TwoWay}" />
+                    </Grid>
+
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,12,0,0"
+                               Text="{Binding PolicySummary}" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 定时与电源 ===== -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SettingsSectionTitle}" Text="定时与电源" />
+
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="138" />
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="定时轮询（秒）" />
+                        <TextBox Grid.Column="1" Margin="0,0,12,0"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding TimerPollSeconds}" />
+                        <TextBlock Grid.Column="2" Style="{StaticResource SettingsHint}"
+                                   Text="每这么久检查一次定时计划（5–600 秒）。改完立即按新间隔重启调度器" />
+                    </Grid>
+
+                    <CheckBox Content="执行期间阻止系统休眠（长跑挂机必备）" Margin="0,12,0,0"
+                              IsChecked="{Binding PreventSleep, Mode=TwoWay}" />
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,6,0,0"
+                               Text="只在队列运行期间生效，不影响系统电源计划；程序退出后自动恢复" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 前后置脚本 ===== -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SettingsSectionTitle}" Text="前后置脚本" />
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,0,0,10"
+                               Text="给高级用法留的口子：换账号、切渠道、上传结果都可以挂在这里。脚本失败只记日志，不会阻断任务；单个脚本最多等 2 分钟。" />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="138" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="前置脚本" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,8,8"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding PreScriptPath}" />
+                        <Button Grid.Row="0" Grid.Column="2" Content="浏览…" Width="72" Height="30" Margin="0,0,0,8"
+                                Command="{Binding PickPreScriptCommand}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="后置脚本" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,8,0"
+                                 Style="{StaticResource SettingsTextBox}"
+                                 Text="{Binding PostScriptPath}" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="浏览…" Width="72" Height="30"
+                                Command="{Binding PickPostScriptCommand}" />
+                    </Grid>
+
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,10,0,0"
+                               Text="{Binding PreScriptSummary}" />
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,4,0,0"
+                               Text="{Binding PostScriptSummary}" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 完成后 ===== -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SettingsSectionTitle}" Text="队列跑完后" />
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="138" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource SettingsLabel}" Text="完成后动作" />
+                        <ComboBox Grid.Column="1" Margin="0,0,12,0"
+                                  Style="{StaticResource SettingsCombo}"
+                                  ItemsSource="{Binding AfterCompletionOptions}"
+                                  SelectedIndex="{Binding AfterCompletionIndex, Mode=TwoWay}" />
+                        <TextBlock Grid.Column="2" Style="{StaticResource SettingsHint}"
+                                   Text="只在整轮正常跑完时触发；手动停止或暂停不触发（否则按了停止反而关机）" />
+                    </Grid>
+                    <TextBlock Style="{StaticResource SettingsHint}" Margin="0,10,0,0"
+                               Text="{Binding Message}" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

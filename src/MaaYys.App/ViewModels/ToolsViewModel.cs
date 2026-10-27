@@ -52,6 +52,23 @@ public sealed class ToolsViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>按名字切分类（调试参数 <c>--tool 运行日志</c>）；找不到返回 false。</summary>
+    public bool Select(string name)
+    {
+        NavigationItem? item = Items.FirstOrDefault(i =>
+            string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (item is null)
+        {
+            return false;
+        }
+
+        Selected = item;
+        return true;
+    }
+
+    /// <summary>当前分类的下标（调试 / 状态恢复用）。</summary>
+    public int SelectedIndex => _selected is null ? -1 : Items.IndexOf(_selected);
+
     public void Dispose()
     {
         foreach (NavigationItem item in Items)

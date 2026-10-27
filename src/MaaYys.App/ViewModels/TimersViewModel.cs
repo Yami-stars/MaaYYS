@@ -82,7 +82,7 @@ public sealed class TimersViewModel : ViewModelBase, IDisposable
     public string SchedulerText => _workspace is null
         ? "未加载工作区"
         : _workspace.Timers.Running
-            ? "调度运行中（每 20 秒检查一次）"
+            ? $"调度运行中（每 {_workspace.Timers.IntervalSeconds} 秒检查一次）"
             : "调度已暂停";
 
     /// <summary>没有配置组时的提示（此时无法新增计划）。</summary>

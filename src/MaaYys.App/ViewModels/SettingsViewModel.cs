@@ -1,34 +1,22 @@
-using System.IO;
-using System.Text.Json;
-using System.Windows.Input;
+using System.Collections.ObjectModel;
 using MaaYys.App.Services;
-using MaaYys.Engine.Cleanup;
 
 namespace MaaYys.App.ViewModels;
 
 /// <summary>
-/// 设置页。
+/// 设置页（P6.2）：左侧二级导航 + 右侧内容，对标 MAA 的设置中心。
 /// <para>
-/// 只有两件<b>用户该看见</b>的事：
-/// <list type="bullet">
-/// <item><b>清理图片缓存</b>——一个按钮，清的是运行时截图（<c>debug/</c>、<c>cache/</c> 里的图片），
-/// 参照 MAA「清空图片缓存」的做法：点一下、确认、直接删。</item>
-/// <item><b>资源整理状态</b>——只读。过期资源（旧版本留下的不可达节点、未引用模板/模型、<c>*.bak</c>）
-/// 在资源版本更新时自动清理，不需要用户决定。</item>
-/// </list>
-/// 「哪些节点不可达」这类判断全在引擎（<see cref="ResourceAudit"/> / <see cref="ResourcePruner"/>），
-/// 界面不参与判定，也不提供勾选——用户不该为「旧版本的垃圾」做选择题。
+/// 五个分类：连接 / 启动 / 运行 / 日志与缓存 / 关于。每个子页直接读写
+/// <c>config/maayys.json</c> 的 <c>settings</c> 段（即时生效，没有「保存」按钮）。
+/// </para>
+/// <para>
+/// 为什么分区：设置项从 2 项涨到 20+ 项后，一页滚到底会让人找不到东西；
+/// 分类后每页只回答一个问题（连不上 / 游戏没开 / 跑一半卡住 / 日志与空间 / 版本与路径）。
 /// </para>
 /// </summary>
-public sealed class SettingsViewModel : ViewModelBase
+public sealed class SettingsViewModel : ViewModelBase, IDisposable
 {
-    private readonly InstanceWorkspace? _workspace;
-    private bool _busy;
-    private string _cacheText = "正在统计…";
-    private string _cacheDetail = string.Empty;
-    private string _maintenanceText = "正在读取…";
-    private string _message = string.Empty;
-    private bool _hasError;
+    private NavigationItem? _selected;
 
     public SettingsViewModel()
         : this(null)
@@ -37,216 +25,72 @@ public sealed class SettingsViewModel : ViewModelBase
 
     public SettingsViewModel(InstanceWorkspace? workspace)
     {
-        _workspace = workspace;
-        ClearCacheCommand = new RelayCommand(_ => _ = ClearCacheAsync(), _ => !IsBusy);
+        Items.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionSettingsViewModel(workspace) });
+        Items.Add(new NavigationItem { Name = "启动", Glyph = "▶", PageFactory = () => new StartupSettingsViewModel(workspace) });
+        Items.Add(new NavigationItem { Name = "运行", Glyph = "⚡", PageFactory = () => new RunSettingsViewModel(workspace) });
+        Items.Add(new NavigationItem { Name = "日志与缓存", Glyph = "☰", PageFactory = () => new StorageSettingsViewModel(workspace) });
+        Items.Add(new NavigationItem { Name = "关于", Glyph = "ℹ", PageFactory = () => new AboutViewModel(workspace) });
 
-        RefreshCache();
-        RefreshMaintenance();
+        _selected = Items[0];
     }
 
-    public ICommand ClearCacheCommand { get; }
+    public ObservableCollection<NavigationItem> Items { get; } = [];
 
-    /// <summary>程序版本（程序集版本，取三段）。</summary>
-    public string AppVersion
+    public NavigationItem? Selected
     {
-        get
+        get => _selected;
+        set
         {
-            Version? version = typeof(SettingsViewModel).Assembly.GetName().Version;
-            return version is null ? "未知" : $"{version.Major}.{version.Minor}.{version.Build}";
-        }
-    }
-
-    /// <summary>MaaFramework 运行库版本（缺库时降级为提示，不让设置页崩）。</summary>
-    public string FrameworkVersion
-    {
-        get
-        {
-            try
+            if (SetProperty(ref _selected, value))
             {
-                return MaaYys.Engine.MaaFramework.Version;
-            }
-            catch (Exception ex)
-            {
-                return $"不可用（{ex.Message}）";
+                OnPropertyChanged(nameof(Current));
             }
         }
     }
 
-    /// <summary>配置清单路径（<c>config/maayys.json</c>）。</summary>
-    public string ConfigPath => _workspace?.Configurations.Path ?? "（未加载）";
+    public ViewModelBase? Current => _selected?.Page;
 
-    /// <summary>实例清单路径。</summary>
-    public string InstanceStorePath => _workspace?.Store.Path ?? "（未加载）";
-
-    /// <summary>资源清单路径。</summary>
-    public string InterfacePath => _workspace?.Resources.InterfacePath ?? "（未找到 resource/interface.json）";
-
-    public bool IsBusy
+    /// <summary>按名字切分类（调试参数 <c>--settings 连接</c>）。</summary>
+    public bool Select(string name)
     {
-        get => _busy;
-        private set
+        NavigationItem? item = Items.FirstOrDefault(i =>
+            string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (item is null)
         {
-            if (SetProperty(ref _busy, value))
+            return false;
+        }
+
+        Selected = item;
+        return true;
+    }
+
+    /// <summary>按下标切分类（0 连接 / 1 启动 / 2 运行 / 3 日志与缓存 / 4 关于）。</summary>
+    public void Select(int index)
+    {
+        if (index >= 0 && index < Items.Count)
+        {
+            Selected = Items[index];
+        }
+    }
+
+    /// <summary>
+    /// 清空图片缓存（调试参数 <c>--clear-cache</c> 用）：转发到「日志与缓存」子页，
+    /// 并确保该子页已创建。
+    /// </summary>
+    public Task ClearAsync()
+    {
+        Select("日志与缓存");
+        return Current is StorageSettingsViewModel storage ? storage.ClearAsync() : Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        foreach (NavigationItem item in Items)
+        {
+            if (item.CreatedPage is IDisposable disposable)
             {
-                (ClearCacheCommand as RelayCommand)?.RaiseCanExecuteChanged();
+                disposable.Dispose();
             }
         }
     }
-
-    /// <summary>图片缓存占用（一行大字：<c>8 张图片 · 11.2 MB（debug）</c>）。</summary>
-    public string CacheText
-    {
-        get => _cacheText;
-        private set => SetProperty(ref _cacheText, value);
-    }
-
-    /// <summary>补充说明（扫描目录的绝对路径）。</summary>
-    public string CacheDetail
-    {
-        get => _cacheDetail;
-        private set => SetProperty(ref _cacheDetail, value);
-    }
-
-    /// <summary>资源整理状态（只读）。</summary>
-    public string MaintenanceText
-    {
-        get => _maintenanceText;
-        private set => SetProperty(ref _maintenanceText, value);
-    }
-
-    /// <summary>操作结果提示。</summary>
-    public string Message
-    {
-        get => _message;
-        private set
-        {
-            if (SetProperty(ref _message, value))
-            {
-                OnPropertyChanged(nameof(ShowMessage));
-                OnPropertyChanged(nameof(ShowError));
-            }
-        }
-    }
-
-    public bool HasError
-    {
-        get => _hasError;
-        private set
-        {
-            if (SetProperty(ref _hasError, value))
-            {
-                OnPropertyChanged(nameof(ShowMessage));
-                OnPropertyChanged(nameof(ShowError));
-            }
-        }
-    }
-
-    /// <summary>成功提示的可见性（WPF 自带转换器不支持取反，直接给两个语义属性）。</summary>
-    public bool ShowMessage => Message.Length > 0 && !HasError;
-
-    public bool ShowError => Message.Length > 0 && HasError;
-
-    /// <summary>确认框文案（与 MAA 一致：先讲清「正常情况下不用清」）。</summary>
-    public static string ConfirmText =>
-        "确认删除所有图片缓存？\n\n"
-        + "· 删除范围：debug、cache 目录下的全部图片（截图、调试用图）；\n"
-        + "· 日志文件（*.log）会保留，排查问题需要的记录不受影响；\n"
-        + "· 图片缓存会随运行重新生成，删除后部分界面需要重新截图，属正常现象。\n\n"
-        + "注意：此操作直接删除，不进入回收站，删除后无法恢复。";
-
-    // ---- 缓存 ----
-
-    public void RefreshCache()
-    {
-        try
-        {
-            ImageCacheSnapshot snapshot = ImageCache.Scan(AppContext.BaseDirectory);
-            CacheText = snapshot.Summary;
-            CacheDetail = snapshot.Directories.Count == 0
-                ? $"{AppContext.BaseDirectory} 下还没有缓存目录"
-                : $"{Path.Combine(AppContext.BaseDirectory, string.Join("、", snapshot.Directories))}";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            CacheText = "统计失败";
-            CacheDetail = ex.Message;
-            HasError = true;
-        }
-    }
-
-    /// <summary>按钮入口：先弹确认框，用户点「是」才动手。</summary>
-    private async Task ClearCacheAsync()
-    {
-        if (System.Windows.MessageBox.Show(
-                ConfirmText,
-                "清理图片缓存",
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Warning,
-                System.Windows.MessageBoxResult.No) != System.Windows.MessageBoxResult.Yes)
-        {
-            return;
-        }
-
-        await ClearAsync().ConfigureAwait(true);
-    }
-
-    /// <summary>真正执行（调试截图等无人值守场景可直接调用，跳过确认框）。</summary>
-    public async Task ClearAsync()
-    {
-        IsBusy = true;
-        HasError = false;
-        Message = "正在清理…";
-
-        try
-        {
-            ImageCacheClearOutcome outcome = await Task.Run(() => ImageCache.Clear(AppContext.BaseDirectory))
-                .ConfigureAwait(true);
-
-            RefreshCache();
-            Message = outcome.Summary;
-            HasError = outcome.Failed > 0;
-
-            if (outcome.Errors.Count > 0)
-            {
-                Message += $"；{string.Join("；", outcome.Errors.Take(3))}";
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            HasError = true;
-            Message = $"清理失败：{ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    // ---- 资源整理状态（只读） ----
-
-    public void RefreshMaintenance()
-    {
-        string statePath = StatePath;
-        if (!File.Exists(statePath))
-        {
-            MaintenanceText = "尚未整理。资源版本更新后会自动清理旧版本残留（不可达节点、未引用模板/模型、*.bak）";
-            return;
-        }
-
-        try
-        {
-            ResourceState? state = JsonSerializer.Deserialize<ResourceState>(File.ReadAllText(statePath));
-            MaintenanceText = state is null
-                ? "状态文件无法解析"
-                : $"上次整理：{state.PrunedAt:yyyy-MM-dd HH:mm}（资源 {state.Version}）\n{state.Summary}";
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-        {
-            MaintenanceText = $"状态文件读取失败：{ex.Message}";
-        }
-    }
-
-    private string StatePath => _workspace?.Resources.InterfacePath is { } interfacePath
-        ? Path.Combine(Path.GetDirectoryName(interfacePath)!, "config", "resource-state.json")
-        : ResourceMaintenance.DefaultStatePath;
 }

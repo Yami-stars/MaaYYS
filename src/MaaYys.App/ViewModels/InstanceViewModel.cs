@@ -51,13 +51,17 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
 
     private DispatcherTimer? _ghostWatch;
 
+    /// <summary>前置程序启动（P6.2）：未找到窗口时按启动设置拉起游戏再等。</summary>
+    private readonly LaunchService? _launch;
+
     public InstanceViewModel(
         InstanceDefinition definition,
         InstanceStore store,
         SynchronizationContext uiContext,
         ResourceProvider? resources = null,
         ILogSink? log = null,
-        LogOptions? logOptions = null)
+        LogOptions? logOptions = null,
+        LaunchService? launch = null)
     {
         Definition = definition;
         _store = store;
@@ -65,6 +69,7 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         _resources = resources;
         _logSink = log;
         _logOptions = logOptions;
+        _launch = launch;
 
         ConnectCommand = new RelayCommand(_ => _ = ConnectAsync(), _ => !IsBusy && State != InstanceState.Connected);
         DisconnectCommand = new RelayCommand(_ => Disconnect(), _ => State == InstanceState.Connected);
@@ -241,11 +246,36 @@ public sealed class InstanceViewModel : ViewModelBase, IDisposable
         {
             StatusText = $"正在定位设备（{Definition.DeviceSummary}）…";
             DeviceDescriptor? device = await ResolveDeviceAsync(Definition).ConfigureAwait(true);
+
+            // P6.2：没找到窗口时按「启动设置」拉起前置程序（游戏本体）再重试一次
+            if (device is null && _launch is not null && Definition.DeviceKind == InstanceDeviceKind.Win32)
+            {
+                LaunchResult launched = await _launch.LaunchAndWaitAsync(
+                    Definition,
+                    message =>
+                    {
+                        StatusText = message;
+                        LogConnect(LogLevel.Info, message);
+                    }).ConfigureAwait(true);
+
+                if (launched.Outcome != LaunchOutcome.Disabled)
+                {
+                    LogConnect(
+                        launched.Outcome == LaunchOutcome.WindowReady ? LogLevel.Info : LogLevel.Warn,
+                        launched.Message);
+
+                    if (launched.Outcome == LaunchOutcome.WindowReady)
+                    {
+                        device = await ResolveDeviceAsync(Definition).ConfigureAwait(true);
+                    }
+                }
+            }
+
             if (device is null)
             {
                 State = InstanceState.Error;
                 StatusText = Definition.DeviceKind == InstanceDeviceKind.Win32
-                    ? $"未找到匹配窗口（标题正则「{Definition.Win32TitleRegex}」），请确认游戏已启动"
+                    ? $"未找到匹配窗口（标题正则「{Definition.Win32TitleRegex}」）。可在「设置 → 启动」里配置前置程序路径，连接时自动启动游戏"
                     : $"未找到 ADB 设备（{Definition.AdbAddress}），请确认模拟器已启动且 adb 已连接";
                 LogConnect(LogLevel.Warn, StatusText);
                 return;

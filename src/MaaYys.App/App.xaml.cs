@@ -8,6 +8,7 @@ using MaaYys.App.Themes;
 using MaaYys.App.ViewModels;
 using MaaYys.App.Views;
 using MaaYys.Engine.Cleanup;
+using MaaYys.Engine.Config;
 
 namespace MaaYys.App;
 
@@ -34,6 +35,23 @@ public partial class App : Application
         var window = new MainWindow();
         MainWindow = window;
         window.Show();
+
+        // P6.2：开机自启（--silent）以最小化状态启动，不打断用户正在做的事
+        bool silentStart = e.Args.Contains(AutoStartService.SilentArgument);
+        if (silentStart)
+        {
+            window.WindowState = System.Windows.WindowState.Minimized;
+        }
+
+        // P6.2：注册表里的启动命令与本程序实际路径对齐（程序被移到别的目录后能自愈）
+        if (window.DataContext is MainViewModel main && main.SettingsPage is not null)
+        {
+            AppSettings appSettings = main.Workspace.Configurations.Settings;
+            if (appSettings.Startup.AutoStartWithWindows)
+            {
+                AutoStartService.Sync(appSettings.Startup.SilentStart);
+            }
+        }
 
         // 调试：--size 1280x720 指定窗口尺寸（P6.1 的验收条件就是「1280×720 布局无截断」，
         // 靠默认尺寸截图无法证明这一点）
@@ -110,6 +128,15 @@ public partial class App : Application
                     }
 
                     await Task.Delay(250);
+                }
+
+                // 可选：改设置项（--set-setting "运行.MaxRetries=3"，可重复）
+                // 走设置页子 ViewModel 的属性 setter —— 与用户点界面同一条路径，
+                // 因此能验证「改完立刻落盘 + 立即生效」，而不是只验证读配置。
+                foreach (string spec in ReadOptions(e.Args, "--set-setting"))
+                {
+                    ApplySetting(viewModel, spec);
+                    await Task.Delay(180);
                 }
 
                 // 可选：往当前配置组的队列里加任务（--add-task 名称，可重复）
@@ -330,12 +357,67 @@ public partial class App : Application
             return;
         }
 
-        if (ReadOption(args, "--tab") is { } name && viewModel.SelectPageByName(name))
+        bool byName = ReadOption(args, "--tab") is { } name && viewModel.SelectPageByName(name);
+        if (!byName)
+        {
+            viewModel.SelectPage(page);
+        }
+
+        // 可选：小工具的第二级分类（--tool 定时任务|运行日志|设备探测，也吃下标）
+        if (ReadOption(args, "--tool") is { } tool)
+        {
+            ToolsViewModel tools = viewModel.Tools;
+            if (!tools.Select(tool) && int.TryParse(tool, out int toolIndex))
+            {
+                tools.Select(toolIndex);
+            }
+        }
+
+        // 可选：设置页的第二级分类（--settings 连接|启动|运行|日志与缓存|关于）
+        // 注意不能放在 --tab 分支的 return 后面，否则按名字切页时永远轮不到它
+        if (ReadOption(args, "--settings") is { } section)
+        {
+            viewModel.SettingsPage.Select(section);
+        }
+    }
+
+    /// <summary>
+    /// 调试用：<c>--set-setting "分类.属性=值"</c>，通过设置子页 ViewModel 的属性 setter 赋值。
+    /// </summary>
+    private static void ApplySetting(MainViewModel? viewModel, string spec)
+    {
+        if (viewModel is null)
         {
             return;
         }
 
-        viewModel.SelectPage(page);
+        int equals = spec.IndexOf('=');
+        int dot = spec.IndexOf('.');
+        if (equals <= 0 || dot <= 0 || dot > equals)
+        {
+            return;
+        }
+
+        string section = spec[..dot];
+        string property = spec[(dot + 1)..equals];
+        string raw = spec[(equals + 1)..];
+
+        viewModel.SettingsPage.Select(section);
+        if (viewModel.SettingsPage.Current is not { } page)
+        {
+            return;
+        }
+
+        System.Reflection.PropertyInfo? info = page.GetType().GetProperty(property);
+        if (info is null || !info.CanWrite)
+        {
+            return;
+        }
+
+        object? converted = info.PropertyType == typeof(string)
+            ? raw
+            : Convert.ChangeType(raw, info.PropertyType, System.Globalization.CultureInfo.InvariantCulture);
+        info.SetValue(page, converted);
     }
 
     private static string? ReadOption(string[] args, string name)

@@ -44,10 +44,27 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
 
         // P5.5：日志缓冲（策略复用配置文件里的 log 段），必须在建实例之前就绪
         Log = new LogBuffer(Configurations.LogOptions);
+
+        // P6.2：文件日志（策略是配置里的同一实例引用，界面改完立即生效）
+        FileLog = new FileLogSink(Configurations.Settings.FileLog, AppContext.BaseDirectory, Configurations.LogOptions);
+        Log.Mirror = FileLog;
+
         Log.Write(LogLevel.Info, "System", $"日志已启动（容量 {Configurations.LogOptions.Capacity} 条，时间格式 {Configurations.LogOptions.TimeFormat}）", "lifecycle");
+        if (Configurations.Settings.FileLog.Enabled)
+        {
+            Log.Write(
+                LogLevel.Info,
+                "System",
+                $"日志落盘已启用：{Configurations.Settings.FileLog.ResolveDirectory(AppContext.BaseDirectory)}（单文件 {Configurations.Settings.FileLog.MaxFileSizeMb} MB、保留 {Configurations.Settings.FileLog.MaxFiles} 份、最低 {LogLevels.Label(Configurations.Settings.FileLog.MinLevel)}）",
+                "lifecycle");
+        }
 
         Store.Changed += (_, _) => SyncFromStore();
+        Configurations.Changed += (_, _) => SettingsChanged?.Invoke(this, EventArgs.Empty);
         SyncFromStore();
+
+        // P6.2：前置程序启动（连接时自动拉起游戏）
+        Launch = new LaunchService(Configurations);
 
         // P5.3 / P5.4：执行入口与定时调度跟着工作区走，页面未创建也生效
         Runner = new QueueRunService(this);
@@ -59,6 +76,14 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
     /// <see cref="ScopedLogSink"/> 打上实例名后写入同一条流，日志页可按来源/实例/级别过滤。
     /// </summary>
     public LogBuffer Log { get; }
+
+    /// <summary>
+    /// 文件日志落点（P6.2）：挂在 <see cref="Log"/> 的镜像上，内存与磁盘同一份内容。
+    /// </summary>
+    public FileLogSink FileLog { get; }
+
+    /// <summary>前置程序启动（P6.2）：连接时找不到窗口就拉起来再等。</summary>
+    public LaunchService Launch { get; }
 
     /// <summary>配置组（P2.6：命名任务配置，可被多个实例共用）。</summary>
     public ConfigurationStore Configurations { get; }
@@ -167,6 +192,15 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
     /// <summary>激活实例变化（状态栏 / 页面提示刷新用）。</summary>
     public event EventHandler? CurrentChanged;
 
+    /// <summary>
+    /// 应用设置变化（P6.2）：设置页保存、任务页改「完成后」都从这里广播，
+    /// 各页面据此重读自己展示的那几项。
+    /// </summary>
+    public event EventHandler? SettingsChanged;
+
+    /// <summary>广播设置变化（设置页保存后调用；也可由订阅方在本地改动后调用）。</summary>
+    public void NotifySettingsChanged() => SettingsChanged?.Invoke(this, EventArgs.Empty);
+
     /// <summary>状态栏摘要：实例名 + 连接状态 + 帧率。</summary>
     public string StatusSummary => Current is null
         ? "无实例"
@@ -235,7 +269,7 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
                 InstanceViewModel? existing = Instances.FirstOrDefault(vm => vm.Id == definition.Id);
                 if (existing is null)
                 {
-                    existing = new InstanceViewModel(definition, Store, _uiContext, Resources, Log);
+                    existing = new InstanceViewModel(definition, Store, _uiContext, Resources, Log, Configurations.LogOptions, Launch);
                     InstallListener(existing);
                     Instances.Insert(Math.Min(index, Instances.Count), existing);
                 }
@@ -359,5 +393,8 @@ public sealed class InstanceWorkspace : ViewModelBase, IDisposable
         }
 
         Instances.Clear();
+
+        Log.Mirror = null;
+        FileLog.Dispose();
     }
 }

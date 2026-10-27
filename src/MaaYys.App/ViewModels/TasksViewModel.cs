@@ -451,22 +451,30 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     /// <summary>任务行右侧齿轮：把右侧参数面板定位到该任务。</summary>
     public ICommand EditItemCommand { get; }
 
-    /// <summary>「完成后」下拉的可选项。</summary>
+    /// <summary>「完成后」下拉的可选项（顺序与 <see cref="RunSettings.AfterCompletionKinds"/> 一致）。</summary>
     public static IReadOnlyList<string> AfterCompletionOptions { get; } = ["无动作", "退出程序", "关机"];
-
-    private int _afterCompletionIndex;
 
     /// <summary>
     /// 整轮队列正常跑完后做什么（停止 / 暂停不触发）。
+    /// <para>
+    /// P6.2 起直接读写应用设置（<c>settings.run.after_completion</c>）——
+    /// 重启后不再回到「无动作」，设置页的同一项也实时同步。
+    /// </para>
     /// <para>选「关机」会二次确认 —— 无人值守时这个选项一旦误选代价很大。</para>
     /// </summary>
     public int AfterCompletionIndex
     {
-        get => _afterCompletionIndex;
+        get
+        {
+            string kind = _workspace?.Configurations.Settings.Run.AfterCompletion ?? "none";
+            int index = Array.IndexOf(RunSettings.AfterCompletionKinds, kind);
+            return index < 0 ? 0 : index;
+        }
+
         set
         {
             int index = Math.Clamp(value, 0, AfterCompletionOptions.Count - 1);
-            if (index == 2 && _afterCompletionIndex != 2)
+            if (index == 2 && AfterCompletionIndex != 2)
             {
                 MessageBoxResult confirm = MessageBox.Show(
                     "队列跑完后将执行关机命令（60 秒倒计时，可用 shutdown /a 取消）。\n确定要选「关机」吗？",
@@ -480,7 +488,23 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            SetProperty(ref _afterCompletionIndex, index);
+            if (_workspace is null)
+            {
+                OnPropertyChanged();
+                return;
+            }
+
+            RunSettings run = _workspace.Configurations.Settings.Run;
+            if (string.Equals(run.AfterCompletion, RunSettings.AfterCompletionKinds[index], StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            run.AfterCompletion = RunSettings.AfterCompletionKinds[index];
+            _workspace.Configurations.UpdateSettings(_workspace.Configurations.Settings);
+            OnPropertyChanged();
+            // 设置页同步（同一个 RunSettings 实例，但页面上的下拉要重读）
+            _workspace.NotifySettingsChanged();
         }
     }
 
@@ -809,11 +833,9 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     private async Task HandleSummaryAsync(Task<ExecutionSummary> task)
     {
         RaiseRunStates();
-        ExecutionOutcome outcome = ExecutionOutcome.Stopped;
         try
         {
             ExecutionSummary summary = await task.ConfigureAwait(true);
-            outcome = summary.Outcome;
             LastRunSummary = $"成功 {summary.Succeeded} · 失败 {summary.Failed} · 跳过 {summary.Skipped}";
             Message = summary.Message ?? LastRunSummary;
         }
@@ -826,40 +848,8 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             RaiseRunStates();
         }
 
-        ApplyAfterCompletion(outcome);
-    }
-
-    /// <summary>
-    /// 整轮正常跑完（<see cref="ExecutionOutcome.Completed"/>）后执行「完成后」动作。
-    /// 停止 / 暂停是用户主动打断，不触发 —— 否则按了停止反而退出程序。
-    /// </summary>
-    private void ApplyAfterCompletion(ExecutionOutcome outcome)
-    {
-        if (outcome != ExecutionOutcome.Completed || AfterCompletionIndex == 0)
-        {
-            return;
-        }
-
-        if (AfterCompletionIndex == 1)
-        {
-            _workspace?.Log.Info("Runner", "按「完成后：退出程序」设置退出", "queue");
-            Application.Current?.Shutdown();
-            return;
-        }
-
-        _workspace?.Log.Warn("Runner", "按「完成后：关机」设置执行关机（60 秒倒计时，shutdown /a 可取消）", "queue");
-        try
-        {
-            Process.Start(new ProcessStartInfo("shutdown", "/s /t 60")
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-            });
-        }
-        catch (Exception ex)
-        {
-            Message = $"关机命令执行失败：{ex.Message}";
-        }
+        // 「完成后动作」由 QueueRunService 统一执行（P6.2 起与定时触发共用同一条路径），
+        // 页面只负责展示结果 —— 否则手动跑一次会执行两遍（关机可能被下发两次）。
     }
 
     /// <summary>全选 / 清空：逐项写回 Enabled（每项都会走 OnEnabledChanged 落盘）。</summary>

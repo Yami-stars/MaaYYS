@@ -41,6 +41,7 @@ public sealed class ConfigurationStore
     private readonly List<TaskConfiguration> _ordered = [];
     private readonly List<Scheduling.TimerEntry> _timers = [];
     private readonly Logging.LogOptions _logOptions = new();
+    private readonly AppSettings _settings = new();
 
     public ConfigurationStore(string? path = null)
     {
@@ -114,6 +115,22 @@ public sealed class ConfigurationStore
         }
     }
 
+    /// <summary>
+    /// 应用级设置（P6.2）：连接 / 启动 / 运行 / 日志落盘。
+    /// 返回**同一实例**（不是副本）——执行器、定时器、文件日志都持有组内子对象引用，
+    /// 改动请走 <see cref="UpdateSettings"/>（负责夹取、落盘、广播）。
+    /// </summary>
+    public AppSettings Settings
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _settings;
+            }
+        }
+    }
+
     /// <summary>配置内容或 Current 变化（UI 据此刷新下拉框与任务列表）。</summary>
     public event EventHandler? Changed;
 
@@ -173,6 +190,7 @@ public sealed class ConfigurationStore
                     Adopt(document.Configurations);
                     AdoptTimers(document.Timers);
                     AdoptLogOptions(document.Log);
+                    AdoptSettings(document.Settings);
                     Current = document.Current is { } current && FindCore(current) is not null
                         ? current
                         : _ordered.FirstOrDefault()?.Name;
@@ -224,6 +242,23 @@ public sealed class ConfigurationStore
         lock (_gate)
         {
             _logOptions.CopyFrom(options).Sanitized();
+            SaveCore();
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 更新应用级设置（P6.2）：原地覆盖 + 夹取 + 落盘 + 广播。
+    /// 不换对象，因此执行器 / 定时器 / 文件日志持有的引用无需重建即生效。
+    /// </summary>
+    public void UpdateSettings(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        lock (_gate)
+        {
+            _settings.CopyFrom(settings).Sanitized();
             SaveCore();
         }
 
@@ -929,13 +964,30 @@ public sealed class ConfigurationStore
         }
     }
 
+    private void AdoptSettings(AppSettings? settings)
+    {
+        if (settings is null)
+        {
+            return;
+        }
+
+        AppSettings draft = settings.Clone().Sanitized();
+        if (!string.Equals(draft.Connection.ScreencapMethod, settings.Connection?.ScreencapMethod, StringComparison.Ordinal)
+            || !string.Equals(draft.Run.AfterCompletion, settings.Run?.AfterCompletion, StringComparison.Ordinal))
+        {
+            LoadErrors.Add("设置里有非法取值（截图方式 / 完成后动作），已回退为默认值");
+        }
+
+        _settings.CopyFrom(draft);
+    }
+
     /// <summary>原子写：tmp → Move(overwrite)，上一版留 .bak。</summary>
     private void SaveCore()
     {
         string directory = System.IO.Path.GetDirectoryName(Path)!;
         Directory.CreateDirectory(directory);
 
-        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current, _timers, _logOptions), SerializerOptions);
+        string json = JsonSerializer.Serialize(ToDocument(_ordered, Current, _timers, _logOptions, _settings), SerializerOptions);
         string temp = Path + ".tmp";
         File.WriteAllText(temp, json, new UTF8Encoding(false));
 
@@ -973,7 +1025,8 @@ public sealed class ConfigurationStore
         IEnumerable<TaskConfiguration> groups,
         string? current,
         IReadOnlyList<Scheduling.TimerEntry>? timers = null,
-        Logging.LogOptions? logOptions = null)
+        Logging.LogOptions? logOptions = null,
+        AppSettings? settings = null)
     {
         var document = new Document
         {
@@ -992,6 +1045,7 @@ public sealed class ConfigurationStore
         }
 
         document.Log = logOptions?.Clone();
+        document.Settings = settings?.Clone();
 
         return document;
     }
@@ -1191,6 +1245,10 @@ public sealed class ConfigurationStore
         /// <summary>日志策略（P5.5）：与配置组同级，跨组共享。</summary>
         [JsonPropertyName("log")]
         public Logging.LogOptions? Log { get; set; }
+
+        /// <summary>应用级设置（P6.2）：连接 / 启动 / 运行 / 日志落盘。</summary>
+        [JsonPropertyName("settings")]
+        public AppSettings? Settings { get; set; }
     }
 
     /// <summary>

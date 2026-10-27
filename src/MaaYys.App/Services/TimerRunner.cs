@@ -54,8 +54,37 @@ public sealed class TimerRunner : IDisposable
 
     public bool Running => _scheduler.Running;
 
-    /// <summary>开始轮询（重复调用无副作用）。</summary>
-    public void Start() => _scheduler.Start();
+    /// <summary>
+    /// 开始轮询（重复调用无副作用）。轮询间隔取「运行设置」（P6.2 之前写死 20 秒）。
+    /// </summary>
+    public void Start()
+    {
+        _scheduler.Start(TimeSpan.FromSeconds(Math.Clamp(_workspace.Configurations.Settings.Run.TimerPollSeconds, 5, 600)));
+        IntervalSeconds = CurrentIntervalSeconds();
+    }
+
+    /// <summary>当前生效的轮询间隔（界面显示 / 设置变更比对用）。</summary>
+    public int IntervalSeconds { get; private set; } = 20;
+
+    private int CurrentIntervalSeconds()
+        => Math.Clamp(_workspace.Configurations.Settings.Run.TimerPollSeconds, 5, 600);
+
+    /// <summary>
+    /// 设置页改了轮询间隔后调用：正在跑就按新间隔重启调度器，没跑就只记下新值。
+    /// </summary>
+    public bool ApplyInterval()
+    {
+        int expected = CurrentIntervalSeconds();
+        if (expected == IntervalSeconds || !Running)
+        {
+            IntervalSeconds = expected;
+            return false;
+        }
+
+        _scheduler.Stop();
+        Start();
+        return true;
+    }
 
     public void Stop() => _scheduler.Stop();
 
