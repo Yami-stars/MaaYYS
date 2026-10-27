@@ -6,23 +6,30 @@ using MaaYys.App.Themes;
 
 namespace MaaYys.App.ViewModels;
 
+/// <summary>
+/// 主窗口 VM（P6.2 改成 MAA 式顶部页签）：一键长草 / 多实例 / 小工具 / 设置。
+/// <para>
+/// 连接、日志、定时这些原先的顶层页收进了「多实例」与「小工具」，
+/// 顶层只留四个入口，和 MAA 的信息架构对齐。
+/// </para>
+/// </summary>
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
-    /// <summary>「日志」页在导航里的下标（主界面「完整日志」按钮跳转用）。</summary>
-    private const int LogsPageIndex = 3;
-
     private readonly InstanceWorkspace _workspace;
 
     public ObservableCollection<NavigationItem> NavigationItems { get; } = new();
 
-    /// <summary>
-    /// 共享任务页（P6.1）：顶部运行控制、主界面任务链、任务页三处共用一个实例，
-    /// 否则在工作台里加的队列项任务页看不到。
-    /// </summary>
+    /// <summary>一键长草（原任务页）：左下 Link Start 与命令行调试都绑它，必须常驻。</summary>
     public TasksViewModel Tasks { get; }
 
-    /// <summary>主界面（左侧任务链 + 右侧连接/截图/日志三面板）。</summary>
-    public WorkbenchViewModel Workbench { get; }
+    /// <summary>多实例：设备绑定 + 连接 + 实时截图 + 配置组。</summary>
+    public InstancesViewModel InstancePage { get; }
+
+    /// <summary>小工具：定时任务 / 运行日志。</summary>
+    public ToolsViewModel Tools { get; }
+
+    /// <summary>设置：外观、缓存与资源维护、关于。</summary>
+    public SettingsViewModel SettingsPage { get; }
 
     private NavigationItem? _selectedItem;
     public NavigationItem? SelectedItem
@@ -44,7 +51,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     /// <summary>实例标签集合（P2.4；与实例页同一份数据源）。</summary>
     public ObservableCollection<InstanceViewModel> Instances => _workspace.Instances;
 
-    /// <summary>当前激活实例（标签条选中项）。</summary>
+    /// <summary>当前激活实例（顶栏下拉选中项）。</summary>
     public InstanceViewModel? CurrentInstance
     {
         get => _workspace.Current;
@@ -88,19 +95,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _workspace = workspace;
         _workspace.CurrentChanged += OnWorkspaceCurrentChanged;
         _workspace.PropertyChanged += OnWorkspacePropertyChanged;
-        _workspace.Instances.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Instances));
+        _workspace.Instances.CollectionChanged += OnInstancesChanged;
 
-        // P6.1：任务页与主界面共用同一个 VM（顶部运行控制也绑它）
         Tasks = new TasksViewModel(_workspace);
-        Workbench = new WorkbenchViewModel(_workspace, Tasks, () => SelectPage(LogsPageIndex));
+        InstancePage = new InstancesViewModel(_workspace);
+        Tools = new ToolsViewModel(_workspace);
+        SettingsPage = new SettingsViewModel(_workspace);
 
-        NavigationItems.Add(new NavigationItem { Name = "主界面", Glyph = "▣", PageFactory = () => Workbench });
-        NavigationItems.Add(new NavigationItem { Name = "任务", Glyph = "≡", PageFactory = () => Tasks });
-        NavigationItems.Add(new NavigationItem { Name = "定时", Glyph = "⏱", PageFactory = () => new TimersViewModel(_workspace) });
-        NavigationItems.Add(new NavigationItem { Name = "日志", Glyph = "☰", PageFactory = () => new LogsViewModel(_workspace) });
-        NavigationItems.Add(new NavigationItem { Name = "连接", Glyph = "⇄", PageFactory = () => new ConnectionViewModel() });
-        NavigationItems.Add(new NavigationItem { Name = "实例", Glyph = "❐", PageFactory = () => new InstancesViewModel(_workspace) });
-        NavigationItems.Add(new NavigationItem { Name = "设置", Glyph = "⚙", PageFactory = () => new SettingsViewModel(_workspace) });
+        NavigationItems.Add(new NavigationItem { Name = "一键长草", Glyph = "▶", PageFactory = () => Tasks });
+        NavigationItems.Add(new NavigationItem { Name = "多实例", Glyph = "❐", PageFactory = () => InstancePage });
+        NavigationItems.Add(new NavigationItem { Name = "小工具", Glyph = "⚒", PageFactory = () => Tools });
+        NavigationItems.Add(new NavigationItem { Name = "设置", Glyph = "⚙", PageFactory = () => SettingsPage });
 
         SelectedItem = NavigationItems[0];
 
@@ -111,16 +116,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         });
 
         AddInstanceCommand = new RelayCommand(_ => _workspace.Add());
-        CloseInstanceCommand = new RelayCommand(
-            parameter =>
+        CloseInstanceCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is InstanceViewModel target && _workspace.Instances.Count > 1)
             {
-                if (parameter is InstanceViewModel target && _workspace.Instances.Count > 1)
-                {
-                    _workspace.Remove(target, out _);
-                }
-            });
+                _workspace.Remove(target, out _);
+            }
+        });
 
-        // P5.4：定时调度随程序启动，不依赖「定时」页是否被打开
+        // P5.4：定时调度随程序启动，不依赖「小工具」页是否被打开
         _workspace.Timers.Start();
     }
 
@@ -134,6 +138,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SelectedItem = NavigationItems[index];
         }
+    }
+
+    /// <summary>按名称选页签（调试截图 --tab 名称 用，避免改布局后下标漂移）。</summary>
+    public bool SelectPageByName(string name)
+    {
+        NavigationItem? target = NavigationItems.FirstOrDefault(i =>
+            string.Equals(i.Name, name, StringComparison.Ordinal));
+        if (target is null)
+        {
+            return false;
+        }
+
+        SelectedItem = target;
+        return true;
     }
 
     /// <summary>按名称或 Id 选择实例（调试截图 --instance 用）。</summary>
@@ -158,6 +176,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(StatusText));
     }
 
+    private void OnInstancesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(Instances));
+    }
+
     /// <summary>
     /// 转发工作区的状态摘要变化。缺这一步时，实例「连接成功/失败」只刷新标签圆点，
     /// 状态栏会一直停在切换实例那一刻的文案（实测：标签显示已连接、状态栏仍写未连接）。
@@ -175,16 +198,24 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _workspace.CurrentChanged -= OnWorkspaceCurrentChanged;
         _workspace.PropertyChanged -= OnWorkspacePropertyChanged;
+        _workspace.Instances.CollectionChanged -= OnInstancesChanged;
 
-        // 主界面与任务页是「常驻」VM（导航没打开过也要停定时器 / 退订），先各自释放
-        Workbench.Dispose();
-        Tasks.Dispose();
+        // 常驻页面可能既被导航项持有、又被字段持有，用引用相等去重，避免同一 VM 释放两次
+        HashSet<IDisposable> released = new(ReferenceEqualityComparer.Instance);
 
         foreach (NavigationItem item in NavigationItems)
         {
-            if (item.CreatedPage is IDisposable disposable)
+            if (item.CreatedPage is IDisposable disposable && released.Add(disposable))
             {
                 disposable.Dispose();
+            }
+        }
+
+        foreach (IDisposable extra in new IDisposable[] { Tasks, Tools, InstancePage })
+        {
+            if (released.Add(extra))
+            {
+                extra.Dispose();
             }
         }
 

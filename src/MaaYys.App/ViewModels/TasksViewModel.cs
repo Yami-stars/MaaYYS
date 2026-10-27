@@ -1,12 +1,15 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Input;
 using MaaYys.App.Services;
 using MaaYys.Engine;
 using MaaYys.Engine.Config;
 using MaaYys.Engine.Execution;
+using MaaYys.Engine.Logging;
 
 namespace MaaYys.App.ViewModels;
 
@@ -219,6 +222,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
 
     private bool _loading;
     private QueueItemViewModel? _selectedQueueItem;
+    private int _selectedRightTab;
 
     public TasksViewModel()
         : this(null)
@@ -237,12 +241,28 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             _runner.StateChanged += OnExecutorStateChanged;
         }
 
+        if (workspace is not null)
+        {
+            workspace.CurrentChanged += OnWorkspaceCurrentChanged;
+        }
+
         ResetTaskCommand = new RelayCommand(_ => ResetTaskOptions(), _ => SelectedQueueItem is not null && OptionRows.Count > 0);
         ResetAllCommand = new RelayCommand(_ => ResetAllOptions(), _ => Queue.Any(q => q.Options.Count > 0));
         AddTaskCommand = new RelayCommand(p => AddTaskToQueue((string)p!), _ => AvailableTasks.Any());
         RunQueueCommand = new RelayCommand(_ => StartRun(), _ => CanStartRun);
         StopRunCommand = new RelayCommand(_ => StopRun(), _ => IsBusy);
         PauseResumeCommand = new RelayCommand(_ => TogglePause(), _ => IsBusy);
+
+        // P6.2 前先把 MAA 式任务卡的三个动作补齐（齿轮只做「定位到该任务」）
+        SelectAllCommand = new RelayCommand(_ => SetAllEnabled(true), _ => Queue.Count > 0);
+        DeselectAllCommand = new RelayCommand(_ => SetAllEnabled(false), _ => Queue.Any(q => q.IsEnabled));
+        EditItemCommand = new RelayCommand(p =>
+        {
+            if (p is QueueItemViewModel item)
+            {
+                SelectedQueueItem = item;
+            }
+        });
 
         if (workspace is not null && workspace.Resources.Config is not null)
         {
@@ -295,8 +315,49 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     /// </summary>
     public ObservableCollection<GlobalOptionSectionViewModel> GlobalSections { get; } = [];
 
-    /// <summary>右侧面板当前选中的页（0=任务参数，1=全局选项）。</summary>
-    public int SelectedRightTab { get; set; }
+    /// <summary>右侧二级页签的标题（MAA 的「常规设置 / 高级设置」）。</summary>
+    public static IReadOnlyList<string> SubTabs { get; } = ["常规设置", "高级设置"];
+
+    /// <summary>右侧面板当前选中的页（0=常规设置，1=高级设置）。</summary>
+    public int SelectedRightTab
+    {
+        get => _selectedRightTab;
+        set
+        {
+            if (SetProperty(ref _selectedRightTab, value))
+            {
+                OnPropertyChanged(nameof(IsRegularTab));
+                OnPropertyChanged(nameof(IsAdvancedTab));
+            }
+        }
+    }
+
+    public bool IsRegularTab => _selectedRightTab == 0;
+
+    public bool IsAdvancedTab => _selectedRightTab == 1;
+
+    /// <summary>实例列表（「多任务共用」区的下拉；与实例页同一份数据源）。</summary>
+    public ObservableCollection<InstanceViewModel>? Instances => _workspace?.Instances;
+
+    /// <summary>当前投递目标实例。</summary>
+    public InstanceViewModel? CurrentInstance
+    {
+        get => _workspace?.Current;
+        set
+        {
+            if (_workspace is null || value is null || ReferenceEquals(_workspace.Current, value))
+            {
+                return;
+            }
+
+            _workspace.Current = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanRunOnCurrentInstance));
+        }
+    }
+
+    /// <summary>当前实例是否已连接（未连接时 Link Start 会给出原因）。</summary>
+    public bool CanRunOnCurrentInstance => _workspace?.Current?.State == InstanceState.Connected;
 
     private string _globalPreview = "{}";
 
@@ -381,6 +442,48 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     /// <summary>暂停 / 继续（同一按钮）。</summary>
     public ICommand PauseResumeCommand { get; }
 
+    /// <summary>任务卡底部「全选」：把队列里所有项勾上。</summary>
+    public ICommand SelectAllCommand { get; }
+
+    /// <summary>任务卡底部「清空」：取消全部勾选（不删任务，与 MAA 一致）。</summary>
+    public ICommand DeselectAllCommand { get; }
+
+    /// <summary>任务行右侧齿轮：把右侧参数面板定位到该任务。</summary>
+    public ICommand EditItemCommand { get; }
+
+    /// <summary>「完成后」下拉的可选项。</summary>
+    public static IReadOnlyList<string> AfterCompletionOptions { get; } = ["无动作", "退出程序", "关机"];
+
+    private int _afterCompletionIndex;
+
+    /// <summary>
+    /// 整轮队列正常跑完后做什么（停止 / 暂停不触发）。
+    /// <para>选「关机」会二次确认 —— 无人值守时这个选项一旦误选代价很大。</para>
+    /// </summary>
+    public int AfterCompletionIndex
+    {
+        get => _afterCompletionIndex;
+        set
+        {
+            int index = Math.Clamp(value, 0, AfterCompletionOptions.Count - 1);
+            if (index == 2 && _afterCompletionIndex != 2)
+            {
+                MessageBoxResult confirm = MessageBox.Show(
+                    "队列跑完后将执行关机命令（60 秒倒计时，可用 shutdown /a 取消）。\n确定要选「关机」吗？",
+                    "确认危险操作",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    OnPropertyChanged();   // 让下拉回退到原值
+                    return;
+                }
+            }
+
+            SetProperty(ref _afterCompletionIndex, index);
+        }
+    }
+
     /// <summary>执行器是否处于运行/暂停/停止中。</summary>
     public bool IsBusy => _runner?.IsBusy == true;
 
@@ -407,7 +510,7 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             int total = Queue.Count;
             if (total == 0)
             {
-                return "队列为空 · 到任务页添加任务";
+                return "队列为空 · 点 ⊕ 添加任务";
             }
 
             int done = Queue.Count(q => q.Status == TaskRunStatus.Done);
@@ -706,9 +809,11 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
     private async Task HandleSummaryAsync(Task<ExecutionSummary> task)
     {
         RaiseRunStates();
+        ExecutionOutcome outcome = ExecutionOutcome.Stopped;
         try
         {
             ExecutionSummary summary = await task.ConfigureAwait(true);
+            outcome = summary.Outcome;
             LastRunSummary = $"成功 {summary.Succeeded} · 失败 {summary.Failed} · 跳过 {summary.Skipped}";
             Message = summary.Message ?? LastRunSummary;
         }
@@ -720,6 +825,58 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         {
             RaiseRunStates();
         }
+
+        ApplyAfterCompletion(outcome);
+    }
+
+    /// <summary>
+    /// 整轮正常跑完（<see cref="ExecutionOutcome.Completed"/>）后执行「完成后」动作。
+    /// 停止 / 暂停是用户主动打断，不触发 —— 否则按了停止反而退出程序。
+    /// </summary>
+    private void ApplyAfterCompletion(ExecutionOutcome outcome)
+    {
+        if (outcome != ExecutionOutcome.Completed || AfterCompletionIndex == 0)
+        {
+            return;
+        }
+
+        if (AfterCompletionIndex == 1)
+        {
+            _workspace?.Log.Info("Runner", "按「完成后：退出程序」设置退出", "queue");
+            Application.Current?.Shutdown();
+            return;
+        }
+
+        _workspace?.Log.Warn("Runner", "按「完成后：关机」设置执行关机（60 秒倒计时，shutdown /a 可取消）", "queue");
+        try
+        {
+            Process.Start(new ProcessStartInfo("shutdown", "/s /t 60")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+            });
+        }
+        catch (Exception ex)
+        {
+            Message = $"关机命令执行失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>全选 / 清空：逐项写回 Enabled（每项都会走 OnEnabledChanged 落盘）。</summary>
+    private void SetAllEnabled(bool enabled)
+    {
+        foreach (QueueItemViewModel item in Queue)
+        {
+            item.IsEnabled = enabled;
+        }
+
+        RaiseCommandStates();
+        OnPropertyChanged(nameof(TaskSummary));
+        OnPropertyChanged(nameof(RunOverview));
+        OnPropertyChanged(nameof(CanStartRun));
+        Message = enabled
+            ? $"{SelectedConfiguration}：已勾选全部 {Queue.Count} 项"
+            : $"{SelectedConfiguration}：已取消全部勾选";
     }
 
     private void StopRun()
@@ -1251,6 +1408,8 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
         (ResetTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (ResetAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (AddTaskCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (SelectAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (DeselectAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
 
         // 队列增删 / 重排后，摘要、运行总览、开始按钮可用态都要跟着变
         // （P6.1：顶部工具栏与任务链在同一个窗口里，漏掉就会出现「列表已有 4 项、摘要仍写 0 项」）
@@ -1265,5 +1424,17 @@ public sealed class TasksViewModel : ViewModelBase, IDisposable
             _runner.ItemStatusChanged -= OnItemStatusChanged;
             _runner.StateChanged -= OnExecutorStateChanged;
         }
+
+        if (_workspace is not null)
+        {
+            _workspace.CurrentChanged -= OnWorkspaceCurrentChanged;
+        }
+    }
+
+    /// <summary>切换实例后刷新共用区的下拉与可运行提示。</summary>
+    private void OnWorkspaceCurrentChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(CurrentInstance));
+        OnPropertyChanged(nameof(CanRunOnCurrentInstance));
     }
 }

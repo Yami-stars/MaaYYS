@@ -46,6 +46,41 @@ public sealed class SettingsViewModel : ViewModelBase
 
     public ICommand ClearCacheCommand { get; }
 
+    /// <summary>程序版本（程序集版本，取三段）。</summary>
+    public string AppVersion
+    {
+        get
+        {
+            Version? version = typeof(SettingsViewModel).Assembly.GetName().Version;
+            return version is null ? "未知" : $"{version.Major}.{version.Minor}.{version.Build}";
+        }
+    }
+
+    /// <summary>MaaFramework 运行库版本（缺库时降级为提示，不让设置页崩）。</summary>
+    public string FrameworkVersion
+    {
+        get
+        {
+            try
+            {
+                return MaaYys.Engine.MaaFramework.Version;
+            }
+            catch (Exception ex)
+            {
+                return $"不可用（{ex.Message}）";
+            }
+        }
+    }
+
+    /// <summary>配置清单路径（<c>config/maayys.json</c>）。</summary>
+    public string ConfigPath => _workspace?.Configurations.Path ?? "（未加载）";
+
+    /// <summary>实例清单路径。</summary>
+    public string InstanceStorePath => _workspace?.Store.Path ?? "（未加载）";
+
+    /// <summary>资源清单路径。</summary>
+    public string InterfacePath => _workspace?.Resources.InterfacePath ?? "（未找到 resource/interface.json）";
+
     public bool IsBusy
     {
         get => _busy;

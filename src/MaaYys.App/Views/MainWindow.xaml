@@ -11,11 +11,14 @@
 
     <Window.Resources>
         <!-- ViewModel → View 映射：ContentControl.Content 绑定 VM 即可自动套用 -->
-        <DataTemplate DataType="{x:Type vm:WorkbenchViewModel}">
-            <pages:WorkbenchView />
-        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:TasksViewModel}">
             <pages:TasksView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:InstancesViewModel}">
+            <pages:InstancesView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ToolsViewModel}">
+            <pages:ToolsView />
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:TimersViewModel}">
             <pages:TimersView />
@@ -23,59 +26,33 @@
         <DataTemplate DataType="{x:Type vm:LogsViewModel}">
             <pages:LogsView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ConnectionViewModel}">
-            <pages:ConnectionView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:InstancesViewModel}">
-            <pages:InstancesView />
-        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
             <pages:SettingsView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ConnectionViewModel}">
+            <pages:ConnectionView />
+        </DataTemplate>
 
-        <Style x:Key="NavItemContainerStyle" TargetType="ListBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Padding" Value="14,10" />
-            <Setter Property="Margin" Value="6,2" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <!-- 顶部页签（MAA 式）：文字 + 选中下划线 -->
+        <Style x:Key="TopTabItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter />
-                        </Border>
+                        <Grid Background="Transparent">
+                            <Border x:Name="Bd" Height="50" Padding="24,0" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="Line" Height="3" VerticalAlignment="Bottom"
+                                    Background="Transparent" Margin="18,0" CornerRadius="1.5" />
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavSelectedBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- 实例标签条：圆点=连接状态，点 × 删除（列表仅一项时禁用） -->
-        <Style x:Key="InstanceTabStyle" TargetType="ListBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
-            <Setter Property="Margin" Value="0,0,6,0" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Bd" CornerRadius="6" Padding="10,4" Background="Transparent"
-                                BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavSelectedBrush}" />
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -87,13 +64,12 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 顶部栏：标题 / 运行状态总览 + 全局开始·暂停·停止（P6.1） / 主题切换 -->
-        <Border Grid.Row="0" Padding="16,10" Background="{DynamicResource PanelBackgroundBrush}"
+        <!-- ============ 顶部：页签 + 实例切换 + 主题 ============ -->
+        <Border Grid.Row="0" Background="{DynamicResource PanelBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -102,137 +78,76 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="17" FontWeight="SemiBold"
-                           VerticalAlignment="Center" Margin="0,0,16,0" />
+                <ListBox Grid.Column="0" ItemsSource="{Binding NavigationItems}"
+                         SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                         ItemContainerStyle="{StaticResource TopTabItemStyle}"
+                         Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" FontSize="14.5" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
-                <!-- 任务运行状态总览：运行态 + 当前任务 + 完成/失败/跳过/总数 -->
-                <TextBlock Grid.Column="1" Text="{Binding Tasks.RunOverview}" FontSize="12"
-                           VerticalAlignment="Center" HorizontalAlignment="Right"
-                           Margin="0,0,16,0" TextTrimming="CharacterEllipsis"
-                           Foreground="{DynamicResource ForegroundSecondaryBrush}"
-                           ToolTip="{Binding Tasks.RunOverview}" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                    <!-- 当前实例：多开时在这里快速切，详细配置在「多实例」页 -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="#6E6E78" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding CurrentInstance.State}" Value="{x:Static vm:InstanceState.Connecting}">
+                                            <Setter Property="Fill" Value="#E0A030" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding CurrentInstance.State}" Value="{x:Static vm:InstanceState.Connected}">
+                                            <Setter Property="Fill" Value="#3FAE6A" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding CurrentInstance.State}" Value="{x:Static vm:InstanceState.Error}">
+                                            <Setter Property="Fill" Value="#E05C5C" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <ComboBox Height="28" MinWidth="130" MaxWidth="200"
+                                  ItemsSource="{Binding Instances}"
+                                  SelectedItem="{Binding CurrentInstance, Mode=TwoWay}"
+                                  DisplayMemberPath="DisplayName"
+                                  ToolTip="当前实例（在「多实例」页管理）" />
+                    </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Content="开始" Width="76" Height="32" Margin="0,0,8,0"
-                            Command="{Binding Tasks.RunQueueCommand}"
-                            ToolTip="按队列顺序执行所有启用的任务">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
-                                <Setter Property="BorderThickness" Value="0" />
-                                <Style.Triggers>
-                                    <!-- 队列为空 / 引擎未就绪时命令不可用，视觉上要能看出来 -->
-                                    <Trigger Property="IsEnabled" Value="False">
-                                        <Setter Property="Opacity" Value="0.4" />
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Content="暂停" Width="76" Height="32" Margin="0,0,8,0"
-                            Command="{Binding Tasks.PauseResumeCommand}"
-                            ToolTip="暂停会中止当前任务，继续时从该任务重新开始" />
-                    <Button Content="停止" Width="76" Height="32" Margin="0,0,8,0"
-                            Command="{Binding Tasks.StopRunCommand}" />
-                    <Button Content="{Binding ThemeLabel}" Width="76" Height="32"
-                            Command="{Binding ToggleThemeCommand}" />
+                    <Button Content="{Binding ThemeLabel}" Width="60" Height="28" FontSize="12"
+                            Command="{Binding ToggleThemeCommand}" ToolTip="切换明暗主题" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- 实例标签条（P2.4 多开） -->
-        <Border Grid.Row="1" Padding="12,6" Background="{DynamicResource NavBackgroundBrush}"
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <StackPanel Orientation="Horizontal">
-                    <ListBox ItemsSource="{Binding Instances}"
-                             SelectedItem="{Binding CurrentInstance, Mode=TwoWay}"
-                             ItemContainerStyle="{StaticResource InstanceTabStyle}"
-                             Background="Transparent" BorderThickness="0" Padding="0">
-                        <ListBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ListBox.ItemsPanel>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
-                                        <Ellipse.Style>
-                                            <Style TargetType="Ellipse">
-                                                <Setter Property="Fill" Value="#6E6E78" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:InstanceState.Connecting}">
-                                                        <Setter Property="Fill" Value="#E0A030" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:InstanceState.Connected}">
-                                                        <Setter Property="Fill" Value="#3FAE6A" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:InstanceState.Error}">
-                                                        <Setter Property="Fill" Value="#E05C5C" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Ellipse.Style>
-                                    </Ellipse>
-                                    <TextBlock Text="{Binding DisplayName}" FontSize="13" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding TabSubtitle}" FontSize="10" Margin="6,0,0,0"
-                                               VerticalAlignment="Center"
-                                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                    <Button Margin="8,0,0,0" Padding="3" Width="18" Height="18"
-                                            VerticalAlignment="Center" ToolTip="删除实例"
-                                            BorderThickness="0" Background="Transparent"
-                                            Command="{Binding DataContext.CloseInstanceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}">
-                                        <Path Data="M0,0 L7,7 M7,0 L0,7" Width="7" Height="7"
-                                              Stretch="None" StrokeThickness="1.3"
-                                              Stroke="{DynamicResource ForegroundSecondaryBrush}" />
-                                    </Button>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+        <!-- ============ 内容 ============ -->
+        <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" Margin="14" />
 
-                    <Button Content="＋ 新建实例" Height="26" Padding="10,0" FontSize="12"
-                            Margin="2,0,0,0" VerticalAlignment="Center"
-                            Command="{Binding AddInstanceCommand}" />
-                </StackPanel>
-            </ScrollViewer>
-        </Border>
-
-        <!-- 主体：左侧导航 + 右侧内容 -->
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="184" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <Border Grid.Column="0" Background="{DynamicResource NavBackgroundBrush}"
-                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
-                <ListBox ItemsSource="{Binding NavigationItems}"
-                         SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
-                         ItemContainerStyle="{StaticResource NavItemContainerStyle}"
-                         Background="Transparent" BorderThickness="0" Padding="0,8">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Glyph}" FontSize="15" Width="24"
-                                           Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-                                <TextBlock Text="{Binding Name}" FontSize="14" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Border>
-
-            <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" Margin="16" />
-        </Grid>
-
-        <!-- 状态栏 -->
-        <Border Grid.Row="3" Padding="12,6" Background="{DynamicResource PanelBackgroundBrush}"
+        <!-- ============ 状态栏 ============ -->
+        <Border Grid.Row="2" Padding="14,6" Background="{DynamicResource PanelBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
-            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource ForegroundSecondaryBrush}" FontSize="12" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding StatusText}"
+                           Foreground="{DynamicResource ForegroundSecondaryBrush}" FontSize="11.5"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{Binding Tasks.RunOverview}" FontSize="11.5"
+                           Margin="16,0,0,0" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                           ToolTip="{Binding Tasks.RunOverview}" />
+            </Grid>
         </Border>
     </Grid>
 </Window>

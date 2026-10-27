@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
     <!--
-        任务链（P6.1 从任务页抽出）：任务页左栏与主界面左栏共用同一份实现。
+        任务卡（P6.1 抽出，P6.2 改成 MAA 式）：勾选框 + 任务名 + 右侧齿轮，底部 ⊕ / 全选 / 清空。
         DataContext 必须是 TasksViewModel —— 拖拽排序 / 重命名 / 右键菜单都落在它身上。
     -->
     <UserControl.Resources>
@@ -13,10 +13,11 @@
             <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
         </Style>
 
-        <Style x:Key="PlainListItemStyle" TargetType="ListBoxItem">
+        <!-- 任务行容器：选中态浅底、悬停稍亮 -->
+        <Style x:Key="TaskRowContainerStyle" TargetType="ListBoxItem">
             <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Padding" Value="10,0" />
             <Setter Property="Margin" Value="0,1" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Template">
@@ -37,6 +38,42 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- 行内齿轮：默认几乎隐形，悬停才明显（MAA 同款观感） -->
+        <Style x:Key="GearButton" TargetType="Button">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
+            <Setter Property="Opacity" Value="0.45" />
+            <Setter Property="ToolTip" Value="调整这个任务的参数" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 卡片底部三格按钮：⊕ / 全选 / 清空 -->
+        <Style x:Key="CardActionButton" TargetType="Button">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.4" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- 重命名：编辑态切换 TextBox / TextBlock -->
@@ -60,51 +97,41 @@
             </Style.Triggers>
         </Style>
 
-        <!-- 队列项模板 -->
+        <!-- 任务行模板 -->
         <DataTemplate x:Key="QueueItemTemplate">
-            <Grid Margin="2,4">
+            <Grid Height="36">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="4" />
-                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="3" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 状态色条 -->
-                <Border Grid.Column="0" x:Name="StatusBar" Width="4" CornerRadius="2"
-                        Background="Transparent" VerticalAlignment="Stretch" />
+                <!-- 运行状态色条（None 时透明，不占视觉） -->
+                <Border Grid.Column="0" x:Name="StatusBar" Width="3" CornerRadius="2"
+                        Background="Transparent" VerticalAlignment="Stretch" Margin="0,7" />
 
                 <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}"
-                          VerticalAlignment="Top" Margin="0,2,0,0" />
+                          VerticalAlignment="Center" Margin="8,0,8,0" />
 
-                <Grid Grid.Column="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0" Text="{Binding DisplayName}" FontSize="12"
+                <Grid Grid.Column="2" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DisplayName}" FontSize="12.5"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                Style="{StaticResource DisplayNameTextStyle}">
                         <TextBlock.InputBindings>
                             <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding BeginEditCommand}" />
                         </TextBlock.InputBindings>
                     </TextBlock>
 
-                    <TextBox Grid.Row="0" Text="{Binding Alias, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox Text="{Binding Alias, UpdateSourceTrigger=PropertyChanged}"
+                             VerticalAlignment="Center"
                              Style="{StaticResource DisplayNameBoxStyle}"
                              LostFocus="AliasBox_LostFocus" KeyDown="AliasBox_KeyDown" />
-
-                    <TextBlock Grid.Row="1" FontSize="10" Foreground="{DynamicResource ForegroundSecondaryBrush}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0} · 实例 {1}">
-                                <Binding Path="Name" />
-                                <Binding Path="InstanceCount" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
                 </Grid>
 
-                <TextBlock Grid.Column="3" FontSize="10" Margin="6,0,0,0"
+                <!-- 同类任务数量（×N，>1 才显示） -->
+                <TextBlock Grid.Column="3" FontSize="10" Margin="0,0,2,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource ForegroundSecondaryBrush}"
                            Text="{Binding InstanceCount, StringFormat='×{0}'}">
                     <TextBlock.Style>
@@ -118,23 +145,27 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+
+                <Button Grid.Column="4" Style="{StaticResource GearButton}" Content="⚙"
+                        Command="{Binding DataContext.EditItemCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                        CommandParameter="{Binding}" />
             </Grid>
 
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Running">
-                    <Setter TargetName="StatusBar" Property="Background" Value="#2E7D32" />
+                    <Setter TargetName="StatusBar" Property="Background" Value="#F9A825" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Pending">
                     <Setter TargetName="StatusBar" Property="Background" Value="#F9A825" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Done">
-                    <Setter TargetName="StatusBar" Property="Background" Value="#1565C0" />
+                    <Setter TargetName="StatusBar" Property="Background" Value="#3FAE6A" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Skipped">
                     <Setter TargetName="StatusBar" Property="Background" Value="#9E9E9E" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter TargetName="StatusBar" Property="Background" Value="#C62828" />
+                    <Setter TargetName="StatusBar" Property="Background" Value="#E05C5C" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Stopped">
                     <Setter TargetName="StatusBar" Property="Background" Value="#EF6C00" />
@@ -143,7 +174,7 @@
         </DataTemplate>
 
         <!-- 队列项容器：右键菜单 -->
-        <Style x:Key="QueueItemContainerStyle" TargetType="ListBoxItem" BasedOn="{StaticResource PlainListItemStyle}">
+        <Style x:Key="QueueItemContainerStyle" TargetType="ListBoxItem" BasedOn="{StaticResource TaskRowContainerStyle}">
             <Setter Property="ContextMenu">
                 <Setter.Value>
                     <ContextMenu>
@@ -157,37 +188,36 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- ⊕ 弹出菜单里的任务项 -->
+        <Style x:Key="CatalogItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,8">
-            <TextBlock Text="任务链" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding TaskSummary}" FontSize="11" HorizontalAlignment="Right"
-                       VerticalAlignment="Center"
-                       Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-        </Grid>
-
-        <Grid Grid.Row="1" Margin="0,0,0,6">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="添加任务" FontSize="11" VerticalAlignment="Center"
-                       Margin="0,0,6,0" Foreground="{DynamicResource ForegroundSecondaryBrush}" />
-            <ComboBox Grid.Column="1" x:Name="AddTaskBox" Height="26" ItemsSource="{Binding AvailableTasks}"
-                      DisplayMemberPath="DisplayName" SelectedValuePath="Name"
-                      ToolTip="把任务加入队列（可加多个同类实例）"
-                      SelectionChanged="AddTaskBox_SelectionChanged" />
-        </Grid>
-
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="0">
             <ListBox x:Name="QueueList"
                      ItemsSource="{Binding Queue}"
                      SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
@@ -198,14 +228,14 @@
                      MouseMove="QueueList_MouseMove"
                      DragOver="QueueList_DragOver"
                      Drop="QueueList_Drop"
-                     Background="Transparent" BorderThickness="0"
+                     Background="Transparent" BorderThickness="0" Padding="0,2"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
 
             <!-- 空队列提示（ObservableCollection.Count 会通知，加/删任务后自动出现/消失） -->
-            <TextBlock Margin="8,10,8,0"
+            <TextBlock Margin="16,24,16,0"
                        HorizontalAlignment="Center" VerticalAlignment="Top"
                        TextAlignment="Center"
-                       Text="队列还是空的：从上方「添加任务」加入，&#10;参数在任务页右侧面板里调">
+                       Text="队列还是空的，点下方 ⊕ 添加任务">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock" BasedOn="{StaticResource HintText}">
                         <Setter Property="Visibility" Value="Collapsed" />
@@ -219,7 +249,83 @@
             </TextBlock>
         </Grid>
 
-        <TextBlock Grid.Row="3" Style="{StaticResource HintText}" Margin="0,6,0,0"
-                   Text="拖拽排序 · 双击重命名 · 右键更多操作" />
+        <!-- 底部工具行：⊕ | 全选 | 清空 -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+            <Grid Height="36">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="AddToggle" Grid.Column="0" Content="＋" FontSize="16"
+                        Height="34" Padding="0" Focusable="False"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{DynamicResource ForegroundPrimaryBrush}"
+                        ToolTip="添加任务" Click="AddButton_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="Transparent" CornerRadius="0,0,0,6">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <Border Grid.Column="1" Background="{DynamicResource BorderBrush}" />
+
+                <Button Grid.Column="2" Style="{StaticResource CardActionButton}" Content="全选"
+                        Command="{Binding SelectAllCommand}" ToolTip="勾选队列里全部任务" />
+
+                <Border Grid.Column="3" Background="{DynamicResource BorderBrush}" />
+
+                <Button Grid.Column="4" Style="{StaticResource CardActionButton}" Content="清空"
+                        Command="{Binding DeselectAllCommand}"
+                        ToolTip="取消全部勾选（不删除任务）" />
+            </Grid>
+        </Border>
+
+        <!-- 添加任务菜单：Popup 而非 ContextMenu，DataContext 才能正常继承 -->
+        <Popup x:Name="CatalogPopup" Placement="Top" StaysOpen="False" AllowsTransparency="True">
+            <Border Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="8" Padding="4" Margin="0,0,0,6"
+                    MinWidth="200" MaxWidth="280">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.35" />
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="添加任务" FontSize="11" Margin="12,8,12,6"
+                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                    <ListBox Grid.Row="1" x:Name="CatalogList" MaxHeight="320"
+                             ItemsSource="{Binding AvailableTasks}"
+                             ItemContainerStyle="{StaticResource CatalogItemStyle}"
+                             Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             SelectionChanged="CatalogList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DisplayName}" FontSize="12.5" />
+                                    <TextBlock Text="{Binding GroupText}" FontSize="10"
+                                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Popup>
     </Grid>
 </UserControl>

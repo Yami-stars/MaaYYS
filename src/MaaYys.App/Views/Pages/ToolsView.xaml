@@ -1,0 +1,62 @@
+<UserControl x:Class="MaaYys.App.Views.Pages.ToolsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <!-- 小工具（P6.2）：左二级导航 + 右内容（定时任务 / 运行日志） -->
+    <UserControl.Resources>
+        <Style x:Key="ToolNavItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavSelectedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="164" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Margin="0,0,12,0" Padding="6" CornerRadius="10"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <ListBox ItemsSource="{Binding Items}"
+                     SelectedItem="{Binding Selected, Mode=TwoWay}"
+                     ItemContainerStyle="{StaticResource ToolNavItemStyle}"
+                     Background="Transparent" BorderThickness="0" Padding="0,4">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Glyph}" FontSize="13" Width="22"
+                                       Foreground="{DynamicResource ForegroundSecondaryBrush}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <ContentControl Grid.Column="1" Content="{Binding Current}" />
+    </Grid>
+</UserControl>

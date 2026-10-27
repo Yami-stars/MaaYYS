@@ -2,7 +2,13 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:MaaYys.App.Views.Controls"
-             Background="{DynamicResource PanelBackgroundBrush}">
+             xmlns:vm="clr-namespace:MaaYys.App.ViewModels"
+             Background="Transparent">
+    <!--
+        一键长草（P6.2 改版）：对齐 MAA 的主界面。
+        左：任务卡（勾选 + 齿轮 + ⊕/全选/清空）→ 完成后动作 → Link Start!
+        右：多任务共用（实例 / 配置组）+ 常规设置 / 高级设置
+    -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
@@ -14,9 +20,9 @@
         </Style>
 
         <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
-            <Setter Property="Margin" Value="0,0,0,3" />
+            <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
 
         <Style x:Key="HintText" TargetType="TextBlock">
@@ -108,127 +114,215 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+
+        <!-- 二级页签（常规设置 / 高级设置）：文字 + 选中下划线，MAA 同款 -->
+        <Style x:Key="SubTabItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Bd" Padding="16,8,16,7">
+                                <ContentPresenter HorizontalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="Line" Height="2" VerticalAlignment="Bottom"
+                                    Background="Transparent" Margin="10,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Line" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundPrimaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="340" />
+            <ColumnDefinition Width="286" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- 左：任务链（P6.1 起抽成共用控件，与主界面同一份实现） -->
-        <Border Grid.Column="0" Margin="0,0,12,0" Padding="12" CornerRadius="8"
+        <!-- ================= 左：任务卡 + 完成后 + Link Start ================= -->
+        <Grid Grid.Column="0" Margin="0,0,14,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- 任务卡：列表吃满剩余高度，底部工具行贴卡片底边 -->
+            <Border Grid.Row="0" CornerRadius="10" Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="0,6,0,0">
+                <controls:TaskQueueView />
+            </Border>
+
+            <!-- 完成后 -->
+            <Grid Grid.Row="1" Margin="2,12,2,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="完成后" FontSize="12.5" VerticalAlignment="Center"
+                           Margin="0,0,10,0" />
+                <ComboBox Grid.Column="1" Height="30" MaxWidth="180" HorizontalAlignment="Left"
+                          ItemsSource="{Binding AfterCompletionOptions}"
+                          SelectedIndex="{Binding AfterCompletionIndex, Mode=TwoWay}"
+                          ToolTip="整个队列正常跑完后执行的动作（停止或暂停不会触发）" />
+            </Grid>
+
+            <!-- Link Start! / 运行中：暂停 + 停止 -->
+            <Grid Grid.Row="2" Margin="0,10,0,0" Height="46">
+                <Button Content="Link Start!" FontSize="17" FontWeight="SemiBold"
+                        Command="{Binding RunQueueCommand}"
+                        ToolTip="按队列顺序执行所有勾选的任务">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+                            <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.35" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <Grid Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="暂停 / 继续" FontSize="13"
+                            Command="{Binding PauseResumeCommand}"
+                            ToolTip="暂停会中止当前任务，继续时从该任务重新开始" />
+                    <Button Grid.Column="2" Content="停止" FontSize="13"
+                            Command="{Binding StopRunCommand}" />
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- ================= 右：多任务共用 + 常规 / 高级 ================= -->
+        <Border Grid.Column="1" CornerRadius="10" Background="{DynamicResource PanelBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="配置组" Style="{StaticResource FieldLabel}" />
-                    <ComboBox Height="28" ItemsSource="{Binding ConfigurationNames}"
-                              SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay}" />
+                <!-- 共用区（对应 MAA 的「客户端类型 / 连接配置」） -->
+                <StackPanel Grid.Row="0" Margin="18,16,18,10">
+                    <TextBlock Text="以下选项为多任务共用" FontSize="13" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,0,0,12" />
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="88" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="实例" Style="{StaticResource FieldLabel}"
+                                   VerticalAlignment="Center" Margin="0" />
+                        <ComboBox Grid.Column="1" Height="30" Width="260" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding Instances}"
+                                  SelectedItem="{Binding CurrentInstance, Mode=TwoWay}"
+                                  DisplayMemberPath="DisplayName"
+                                  ToolTip="任务投递到哪个实例（在「多实例」页管理）" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="88" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="配置组" Style="{StaticResource FieldLabel}"
+                                   VerticalAlignment="Center" Margin="0" />
+                        <ComboBox Grid.Column="1" Height="30" Width="260" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding ConfigurationNames}"
+                                  SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay}"
+                                  ToolTip="任务勾选与参数的真实归属" />
+                    </Grid>
+
+                    <!-- 连接状态：未连接时红字提示（对应 MAA 的红色告警块） -->
+                    <TextBlock Text="{Binding CurrentInstance.StatusText, FallbackValue=未选择实例}"
+                               FontSize="11" TextWrapping="Wrap" Margin="88,2,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundSecondaryBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentInstance.State}" Value="{x:Static vm:InstanceState.Error}">
+                                        <Setter Property="Foreground" Value="#E05C5C" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentInstance.State}" Value="{x:Static vm:InstanceState.Disconnected}">
+                                        <Setter Property="Foreground" Value="#D9A227" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </StackPanel>
 
-                <!-- 运行控制（P5.3 执行引擎；顶部主工具栏同样提供这三个动作） -->
-                <Border Grid.Row="1" Margin="0,0,0,8" Padding="8,6" CornerRadius="6"
-                        Background="{DynamicResource NavBackgroundBrush}">
+                <!-- 常规 / 高级 -->
+                <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Content="开始运行" Height="28" Padding="12,0" Margin="0,0,6,0"
-                                Command="{Binding RunQueueCommand}"
-                                ToolTip="按队列顺序执行所有启用的任务" />
-                        <Button Grid.Column="1" Content="暂停/继续" Height="28" Padding="12,0" Margin="0,0,6,0"
-                                Command="{Binding PauseResumeCommand}"
-                                ToolTip="暂停会中止当前任务，继续时从该任务重新开始" />
-                        <Button Grid.Column="2" Content="停止" Height="28" Padding="12,0"
-                                Command="{Binding StopRunCommand}" />
-                    </Grid>
-                </Border>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
 
-                <controls:TaskQueueView Grid.Row="2" />
-            </Grid>
-        </Border>
+                        <ListBox Grid.Row="0" ItemsSource="{x:Static vm:TasksViewModel.SubTabs}"
+                                 SelectedIndex="{Binding SelectedRightTab, Mode=TwoWay}"
+                                 ItemContainerStyle="{StaticResource SubTabItemStyle}"
+                                 Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                        </ListBox>
 
-        <!-- 右：参数面板 + 编译预览（任务参数 / 全局选项 两个页） -->
-        <Border Grid.Column="1" CornerRadius="8"
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+                        <!-- 常规设置：当前选中任务的参数 -->
+                        <ScrollViewer Grid.Row="1" Padding="18,4,18,12" VerticalScrollBarVisibility="Auto">
+                            <Grid>
+                                <StackPanel Visibility="{Binding IsRegularTab, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid Margin="0,4,0,2">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding TaskHeader}" FontSize="14" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding TaskHint}" Style="{StaticResource HintText}"
+                                                       Margin="0,2,0,0" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center">
+                                            <Button Content="恢复默认" Height="26" Padding="10,0" Margin="0,0,6,0"
+                                                    FontSize="11" Command="{Binding ResetTaskCommand}" />
+                                            <Button Content="清空本组" Height="26" Padding="10,0"
+                                                    FontSize="11" Command="{Binding ResetAllCommand}" />
+                                        </StackPanel>
+                                    </Grid>
 
-                <TabControl Grid.Row="0" BorderThickness="0" Padding="0">
-                    <!-- 任务参数 -->
-                    <TabItem Header="任务参数">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <Border Grid.Row="0" Padding="14,10" BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="0,0,0,1">
-                                <Grid>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding TaskHeader}" FontSize="14" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding TaskHint}" Style="{StaticResource HintText}" Margin="0,2,0,0" />
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                        <Button Content="恢复本任务默认" Height="26" Padding="10,0" Margin="0,0,6,0"
-                                                Command="{Binding ResetTaskCommand}" />
-                                        <Button Content="清空本组参数" Height="26" Padding="10,0"
-                                                Command="{Binding ResetAllCommand}" />
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-
-                            <ScrollViewer Grid.Row="1" Padding="14,6,14,10" VerticalScrollBarVisibility="Auto">
-                                <StackPanel>
                                     <ItemsControl ItemsSource="{Binding OptionRows}"
                                                   ItemTemplate="{StaticResource OptionRowTemplate}" />
 
-                                    <TextBlock Text="编译后的 pipeline_override（P5 投递任务时使用，已含全局选项层）"
-                                               Style="{StaticResource SectionTitle}" />
-                                    <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True"
-                                             FontFamily="Consolas, Microsoft YaHei UI" FontSize="11"
-                                             Height="190" AcceptsReturn="True" TextWrapping="NoWrap"
-                                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                                             Background="{DynamicResource NavBackgroundBrush}"
-                                             Foreground="{DynamicResource ForegroundPrimaryBrush}"
-                                             BorderBrush="{DynamicResource BorderBrush}" Padding="8" />
+                                    <TextBlock Style="{StaticResource HintText}" Margin="0,10,0,0"
+                                               Text="点任务行右侧的齿轮可直接定位到该任务的参数。" />
                                 </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
-                    </TabItem>
 
-                    <!-- 全局选项（MXU setting 扩展） -->
-                    <TabItem Header="全局选项"
-                             Visibility="{Binding HasGlobalOptions, Converter={StaticResource BoolToVisibility}}">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <Border Grid.Row="0" Padding="14,10" BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="0,0,0,1">
-                                <StackPanel>
-                                    <TextBlock Text="全局选项" FontSize="14" FontWeight="SemiBold" />
-                                    <TextBlock Text="这些设置对本配置组的所有任务生效；任务级同名选项会覆盖它们。"
-                                               Style="{StaticResource HintText}" Margin="0,2,0,0" />
-                                </StackPanel>
-                            </Border>
-
-                            <ScrollViewer Grid.Row="1" Padding="14,6,14,10" VerticalScrollBarVisibility="Auto">
-                                <StackPanel>
+                                <!-- 高级设置：全局选项 + 编译预览 -->
+                                <StackPanel Visibility="{Binding IsAdvancedTab, Converter={StaticResource BoolToVisibility}}">
                                     <ItemsControl ItemsSource="{Binding GlobalSections}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -244,26 +338,19 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
 
-                                    <TextBlock Text="全局选项贡献的 pipeline_override（并入每个任务）"
+                                    <TextBlock Text="编译后的 pipeline_override（含全局选项层）"
                                                Style="{StaticResource SectionTitle}" />
-                                    <TextBox Text="{Binding GlobalPreview, Mode=OneWay}" IsReadOnly="True"
+                                    <TextBox Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True"
                                              FontFamily="Consolas, Microsoft YaHei UI" FontSize="11"
-                                             Height="150" AcceptsReturn="True" TextWrapping="NoWrap"
+                                             Height="220" AcceptsReturn="True" TextWrapping="NoWrap"
                                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                                              Background="{DynamicResource NavBackgroundBrush}"
                                              Foreground="{DynamicResource ForegroundPrimaryBrush}"
                                              BorderBrush="{DynamicResource BorderBrush}" Padding="8" />
                                 </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
-                    </TabItem>
-                </TabControl>
-
-                <!-- 底部消息 -->
-                <Border Grid.Row="1" Padding="14,8" BorderBrush="{DynamicResource BorderBrush}"
-                        BorderThickness="0,1,0,0">
-                    <TextBlock Text="{Binding Message}" FontSize="11" TextWrapping="Wrap"
-                               Foreground="{DynamicResource ForegroundSecondaryBrush}" />
+                            </Grid>
+                        </ScrollViewer>
+                    </Grid>
                 </Border>
             </Grid>
         </Border>

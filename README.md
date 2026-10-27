@@ -167,7 +167,7 @@ agent 侧硬性约束（违反即崩溃）：`BindResource` 必须先于 `Connec
 
 | # | 任务 | 状态 |
 |---|---|---|
-| 6.1 | 主界面布局 | ✅ 完成（`WorkbenchView`：左任务链 + 右连接/截图/日志三面板可折叠 + 顶部开始/暂停/停止 + 运行总览；任务链抽成 `Controls/TaskQueueView` 与任务页共用；`MainViewModel.Tasks` 单一实例；日志面板轮询增量、留 200 行；1280×720 / 1040×640 截图无截断，266/266 测试） |
+| 6.1 | 主界面布局 | ✅ 完成（**MAA 式顶部四页签**：一键长草 / 多实例 / 小工具 / 设置；一键长草 = 左任务卡（勾选 + 齿轮 + ⊕/全选/清空）+ 完成后 + `Link Start!`，右「多任务共用 + 常规/高级设置」；截图移到多实例，定时/日志/设备探测进小工具；1280×760 / 1040×660 / 明暗双主题截图无截断，266/266 测试） |
 | 6.2 | 设置中心-系统类 | 待开始（连接设置 / 启动设置含开机自启 / 运行设置；P5.3·P5.4 策略参数与日志落盘一并暴露） |
 | 6.3 | 设置中心-应用类 | 待开始 |
 | 6.4 | 界面细节打磨 | 待开始 |
@@ -730,7 +730,7 @@ MaaYys.exe --page 3 --scale 2 --screenshot out.png            # 2 倍分辨率�
 
 新增 `src/MaaYys.App`（`net9.0-windows` + WPF，输出 `MaaYys.exe`）：
 
-- **导航框架**：左侧页签（主界面 / 任务 / 定时 / 日志 / 连接 / 实例 / 设置），`ContentControl` + `DataTemplate` 按 ViewModel 类型自动套用页面，页面懒创建并缓存（切换不丢状态）。P6.1 把原「首页」换成「主界面」（工作台），引擎版本信息移入连接面板底部
+- **导航框架**：**顶部页签**（一键长草 / 多实例 / 小工具 / 设置），`ContentControl` + `DataTemplate` 按 ViewModel 类型自动套用页面，页面懒创建并缓存（切换不丢状态）。小工具页内再一层左侧二级导航（定时任务 / 运行日志 / 设备探测）。P6.1 起左侧导航整体移除，实例切换并入顶栏下拉
 - **明暗主题**：`Themes/Theme.Dark.xaml` / `Theme.Light.xaml`（键一一对应，暗色对标 MAA 观感），`ThemeManager` 整体替换 Application 级资源字典；顶栏按钮实时切换
 - **MVVM 基础**：`ViewModelBase`（SetProperty / OnPropertyChanged）、`RelayCommand`（无第三方 MVVM 框架依赖）
 - **DPI**：`app.manifest` 声明 `PerMonitorV2`（P1.6 评审要求，避免截图/点击坐标被 DPI 虚拟化带偏）

@@ -43,6 +43,12 @@ public partial class App : Application
             window.Height = requestedHeight;
         }
 
+        // 调试：--light 以浅色主题截图，校验两套主题下新版布局都不漏字
+        if (e.Args.Contains("--light"))
+        {
+            ThemeManager.Apply(MaaYys.App.Themes.ThemeKind.Light);
+        }
+
         // 资源版本更新后，旧版本留下的不可达节点 / 未引用模板与模型 / *.bak 在后台自动清掉。
         // 截图模式不跑：那种模式进程几秒就退出，后台任务半途被杀没有意义。
         if (!e.Args.Contains("--screenshot"))
@@ -75,7 +81,7 @@ public partial class App : Application
                 window.Dispatcher.InvokeAsync(
                     async () =>
                     {
-                        (window.DataContext as MainViewModel)?.SelectPage(page);
+                        ApplyTab(window.DataContext as MainViewModel, e.Args, page);
                         await Task.Delay(1200);
                         await ConnectCurrentInstanceAsync(window, switchResource);
                     },
@@ -93,7 +99,18 @@ public partial class App : Application
             async () =>
             {
                 MainViewModel? viewModel = window.DataContext as MainViewModel;
-                viewModel?.SelectPage(page);
+                ApplyTab(viewModel, e.Args, page);
+
+                // 可选：清空当前配置组的队列（--clear-queue），用于截空队列状态
+                if (e.Args.Contains("--clear-queue") && viewModel?.Tasks is { } emptyQueue)
+                {
+                    while (emptyQueue.Queue.Count > 0)
+                    {
+                        emptyQueue.Queue[^1].RemoveCommand.Execute(null);
+                    }
+
+                    await Task.Delay(250);
+                }
 
                 // 可选：往当前配置组的队列里加任务（--add-task 名称，可重复）
                 // 走与「添加任务」下拉完全相同的一条路，用于无人值守校验任务链 / 状态总览
@@ -103,14 +120,8 @@ public partial class App : Application
                     await Task.Delay(150);
                 }
 
-                // 可选：折叠主界面面板（--collapse 连接|截图|日志，可重复），校验折叠后的行高回落
-                foreach (string panelName in ReadOptions(e.Args, "--collapse"))
-                {
-                    viewModel?.Workbench.CollapsePanel(panelName);
-                }
-
                 // 可选：任务页自动选中某个任务（配合 --screenshot 校验参数面板）
-                if (ReadOption(e.Args, "--task") is { } taskName && viewModel?.CurrentPage is TasksViewModel tasksPage)
+                if (ReadOption(e.Args, "--task") is { } taskName && viewModel?.Tasks is { } tasksPage)
                 {
                     tasksPage.SelectedQueueItem = tasksPage.Queue.FirstOrDefault(
                         q => string.Equals(q.DisplayName, taskName, StringComparison.Ordinal)
@@ -118,11 +129,20 @@ public partial class App : Application
                     await Task.Delay(400);
                 }
 
+                // 可选：切到「高级设置」二级页（--right-tab 1），校验全局选项与编译预览
+                if (ReadOption(e.Args, "--right-tab") is { } rightTabRaw
+                    && int.TryParse(rightTabRaw, out int rightTab)
+                    && viewModel?.Tasks is { } rightTabPage)
+                {
+                    rightTabPage.SelectedRightTab = rightTab;
+                    await Task.Delay(300);
+                }
+
                 // 可选：预置选项值（--set-option "任务|选项|取值"，可重复），走与界面相同的保存路径
                 foreach (string raw in ReadOptions(e.Args, "--set-option"))
                 {
                     string[] parts = raw.Split('|');
-                    if (parts.Length == 3 && viewModel?.CurrentPage is TasksViewModel page)
+                    if (parts.Length == 3 && viewModel?.Tasks is { } page)
                     {
                         page.ApplyOption(parts[0], parts[1], parts[2]);
                         await Task.Delay(150);
@@ -297,6 +317,25 @@ public partial class App : Application
 
         using FileStream stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    /// <summary>
+    /// 切页签（调试用）：<c>--tab 一键长草</c> 按名字，<c>--page N</c> 按下标。
+    /// 名字优先 —— 页签重排后下标会漂移，脚本里写名字更稳。
+    /// </summary>
+    private static void ApplyTab(MainViewModel? viewModel, string[] args, int page)
+    {
+        if (viewModel is null)
+        {
+            return;
+        }
+
+        if (ReadOption(args, "--tab") is { } name && viewModel.SelectPageByName(name))
+        {
+            return;
+        }
+
+        viewModel.SelectPage(page);
     }
 
     private static string? ReadOption(string[] args, string name)

@@ -104,9 +104,16 @@ public partial class TaskQueueView : UserControl
         return obj as ListBoxItem;
     }
 
-    // ---- 添加任务 ----
+    // ---- 添加任务（⊕ → Popup 任务目录） ----
 
-    private void AddTaskBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void AddButton_Click(object sender, RoutedEventArgs e)
+    {
+        // PlacementTarget 在代码里设：Popup 不在可视树内，XAML 的 ElementName 绑定不可靠
+        CatalogPopup.PlacementTarget = AddToggle;
+        CatalogPopup.IsOpen = true;
+    }
+
+    private void CatalogList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.AddedItems.Count == 0)
         {
@@ -118,7 +125,8 @@ public partial class TaskQueueView : UserControl
             viewModel.AddTaskCommand.Execute(item.Name);
         }
 
-        ((ComboBox)sender).SelectedIndex = -1; // 允许重复添加同类实例
+        CatalogList.SelectedIndex = -1;   // 允许重复添加同类实例
+        CatalogPopup.IsOpen = false;
     }
 
     // ---- 重命名提交 ----
